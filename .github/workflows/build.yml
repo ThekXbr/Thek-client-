@@ -14,7 +14,7 @@ jobs:
       - name: Organizar pastas
         run: |
           mkdir -p app/src/main/java/com/thek/cliente
-          mv MainActivity.kt WindHud.kt app/src/main/java/com/thek/cliente/
+          mv *.kt app/src/main/java/com/thek/cliente/
           mv AndroidManifest.xml app/src/main/
           mv app-build.gradle.kts app/build.gradle.kts
       - uses: gradle/actions/setup-gradle@v4
