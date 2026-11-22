@@ -9,8 +9,10 @@ import android.net.Uri
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -58,6 +60,11 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private lateinit var content: FrameLayout
     private var web: WebView? = null
     private val d = resources.displayMetrics.density
+    private val wm = base.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var sx = 0f
+    private var sy = 0f
+    private var ox = 0
+    private var oy = 0
 
     private fun px(v: Int) = (v * d).toInt()
 
@@ -69,9 +76,34 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         }
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(12), px(10), px(12), px(12))
+            setPadding(px(12), px(6), px(12), px(12))
         }
         addView(col, FrameLayout.LayoutParams(-1, -1))
+
+        // barra para arrastar o menu
+        val handle = TextView(context)
+        handle.text = "\u2630  arraste aqui"
+        handle.textSize = 12f
+        handle.setTextColor(0xFF7A849E.toInt())
+        handle.gravity = Gravity.CENTER
+        handle.setPadding(0, px(8), 0, px(8))
+        handle.setOnTouchListener { _, e ->
+            val lp = layoutParams as? WindowManager.LayoutParams
+            if (lp != null) {
+                if (e.action == MotionEvent.ACTION_DOWN) {
+                    sx = e.rawX
+                    sy = e.rawY
+                    ox = lp.x
+                    oy = lp.y
+                } else if (e.action == MotionEvent.ACTION_MOVE) {
+                    lp.x = ox + (e.rawX - sx).toInt()
+                    lp.y = oy + (e.rawY - sy).toInt()
+                    wm.updateViewLayout(this@MenuView, lp)
+                }
+            }
+            true
+        }
+        col.addView(handle, LinearLayout.LayoutParams(-1, -2))
 
         val tabs = LinearLayout(context)
         col.addView(tabs, LinearLayout.LayoutParams(-1, -2))
@@ -123,7 +155,7 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         return when {
             s.startsWith("http://") || s.startsWith("https://") -> s
             !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> "https://www.google.com/search?q=" + Uri.encode(s)
+            else -> "https://duckduckgo.com/?q=" + Uri.encode(s)
         }
     }
 
@@ -138,14 +170,14 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = WebViewClient()
-            loadUrl("https://www.google.com")
+            loadUrl("https://duckduckgo.com")
         }
         web = w
         val open = { w.loadUrl(toUrl(et.text.toString())) }
         go.setOnClickListener { open() }
         et.setOnEditorActionListener { _, _, _ -> open(); true }
         val chips = LinearLayout(context)
-        for (s in listOf("claude.ai", "google.com", "youtube.com")) {
+        for (s in listOf("duckduckgo.com", "claude.ai", "wikipedia.org")) {
             chips.addView(Button(context).apply {
                 text = s
                 textSize = 11f
