@@ -3,8 +3,11 @@ package com.thek.cliente
 import android.content.Context
 import android.graphics.*
 import android.view.Choreographer
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.OvershootInterpolator
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -12,9 +15,14 @@ import kotlin.math.sin
 class WindView(ctx: Context) : View(ctx) {
     var stats = Stats()
     var fps = 0f
+    var onGear: (() -> Unit)? = null
+    var onClose: (() -> Unit)? = null
+    var onDown: (() -> Unit)? = null
+    var onMove: ((Int, Int) -> Unit)? = null
 
     private val d = resources.displayMetrics.density
     private val pad = 14 * d
+    private val hh = 28 * d
     private val rowH = 32 * d
     private val bw = 200 * d
     private var bh = 100 * d
@@ -24,12 +32,23 @@ class WindView(ctx: Context) : View(ctx) {
     private var phase = 0f
     private var frames = 0
     private var lastT = 0L
+    private var mode = 0
+    private var sx = 0f
+    private var sy = 0f
+    private var startScale = 1f
+    private var moved = false
 
     private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD90E1320.toInt() }
     private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.2f * d
         color = 0x33FFFFFF
+    }
+    private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2 * d
+        strokeCap = Paint.Cap.ROUND
+        color = 0xCCFFFFFF.toInt()
     }
     private val wave = Paint(Paint.ANTI_ALIAS_FLAG)
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF }
@@ -56,7 +75,7 @@ class WindView(ctx: Context) : View(ctx) {
         scale = p.getInt("scale", 100) / 100f
         val keys = listOf("show_fps", "show_ram", "show_cpu", "show_gpu", "show_game")
         rows = keys.withIndex().filter { p.getBoolean(it.value, true) }.map { it.index }
-        bh = pad * 2 + max(1, rows.size) * rowH
+        bh = hh + max(1, rows.size) * rowH + pad * 0.6f
         fill.shader = LinearGradient(
             0f, 0f, bw, 0f,
             0xFF6EE7F9.toInt(), 0xFFA78BFA.toInt(), Shader.TileMode.CLAMP
@@ -107,6 +126,41 @@ class WindView(ctx: Context) : View(ctx) {
         setMeasuredDimension((bw * scale).toInt(), (bh * scale).toInt())
     }
 
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        val x = e.x / scale
+        val y = e.y / scale
+        when (e.action) {
+            MotionEvent.ACTION_DOWN -> {
+                sx = e.rawX
+                sy = e.rawY
+                moved = false
+                startScale = scale
+                mode = if (x > bw - 34 * d && y > bh - 34 * d) 1 else 0
+                onDown?.invoke()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - sx
+                val dy = e.rawY - sy
+                if (abs(dx) + abs(dy) > 8 * d) moved = true
+                if (moved) {
+                    if (mode == 1) {
+                        val s = ((bw * startScale + dx) / bw).coerceIn(0.6f, 2f)
+                        Prefs.get(context).edit().putInt("scale", (s * 100).roundToInt()).apply()
+                    } else {
+                        onMove?.invoke(dx.toInt(), dy.toInt())
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!moved && y < hh + 4 * d) {
+                    if (x > bw - 36 * d) onClose?.invoke()
+                    else if (x > bw - 70 * d) onGear?.invoke()
+                }
+            }
+        }
+        return true
+    }
+
     override fun onDraw(c: Canvas) {
         c.save()
         c.scale(scale, scale)
@@ -130,9 +184,28 @@ class WindView(ctx: Context) : View(ctx) {
         c.restore()
         c.drawRoundRect(0f, 0f, bw, bh, 18 * d, 18 * d, border)
 
+        // cabecalho: nome, engrenagem, fechar
+        c.drawText("THEK", pad, hh * 0.72f, label)
+        val gx = bw - 52 * d
+        val gy = hh / 2 + 2 * d
+        c.drawCircle(gx, gy, 5 * d, icon)
+        for (k in 0 until 8) {
+            val a = k * 0.785f
+            c.drawLine(
+                gx + cos(a) * 7 * d, gy + sin(a) * 7 * d,
+                gx + cos(a) * 10 * d, gy + sin(a) * 10 * d, icon
+            )
+        }
+        val xx = bw - 20 * d
+        c.drawLine(xx - 5 * d, gy - 5 * d, xx + 5 * d, gy + 5 * d, icon)
+        c.drawLine(xx - 5 * d, gy + 5 * d, xx + 5 * d, gy - 5 * d, icon)
+        // alca de redimensionar
+        c.drawLine(bw - 14 * d, bh - 6 * d, bw - 6 * d, bh - 14 * d, icon)
+        c.drawLine(bw - 9 * d, bh - 6 * d, bw - 6 * d, bh - 9 * d, icon)
+
         val s = stats
         rows.forEachIndexed { n, id ->
-            val top = pad + n * rowH
+            val top = hh + n * rowH
             val base = top + 14 * d
             val txt: String
             val frac: Float?
