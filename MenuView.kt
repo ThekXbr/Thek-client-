@@ -55,4 +55,4 @@ fun hudControls(ctx: Context, root: LinearLayout) {
 class MenuView(base: Context, private val onClose: () -> Unit) :
     FrameLayout(ContextThemeWrapper(base, android.R.style.Theme_Material_NoActionBar)) {
 
-    private val pages = ArrayList
+        private val pages = ArrayList<View>()
