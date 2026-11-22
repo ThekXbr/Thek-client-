@@ -25,8 +25,10 @@ class WindView(ctx: Context) : View(ctx) {
     private val hh = 28 * d
     private val rowH = 32 * d
     private val bw = 200 * d
+    private val cs = 46 * d
     private var bh = 100 * d
     private var scale = 1f
+    private var collapsed = false
     private var rows = listOf<Int>()
     private val shown = FloatArray(5)
     private var phase = 0f
@@ -49,6 +51,16 @@ class WindView(ctx: Context) : View(ctx) {
         strokeWidth = 2 * d
         strokeCap = Paint.Cap.ROUND
         color = 0xCCFFFFFF.toInt()
+    }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3 * d
+    }
+    private val bubbleText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 20 * d
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
     }
     private val wave = Paint(Paint.ANTI_ALIAS_FLAG)
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22FFFFFF }
@@ -73,11 +85,16 @@ class WindView(ctx: Context) : View(ctx) {
     fun applyPrefs() {
         val p = Prefs.get(context)
         scale = p.getInt("scale", 100) / 100f
+        collapsed = p.getBoolean("collapsed", false)
         val keys = listOf("show_fps", "show_ram", "show_cpu", "show_gpu", "show_game")
         rows = keys.withIndex().filter { p.getBoolean(it.value, true) }.map { it.index }
         bh = hh + max(1, rows.size) * rowH + pad * 0.6f
         fill.shader = LinearGradient(
             0f, 0f, bw, 0f,
+            0xFF6EE7F9.toInt(), 0xFFA78BFA.toInt(), Shader.TileMode.CLAMP
+        )
+        ring.shader = LinearGradient(
+            0f, 0f, cs, cs,
             0xFF6EE7F9.toInt(), 0xFFA78BFA.toInt(), Shader.TileMode.CLAMP
         )
         wave.shader = LinearGradient(
@@ -88,6 +105,10 @@ class WindView(ctx: Context) : View(ctx) {
         clip.addRoundRect(0f, 0f, bw, bh, 18 * d, 18 * d, Path.Direction.CW)
         requestLayout()
         invalidate()
+    }
+
+    private fun setCollapsed(on: Boolean) {
+        Prefs.get(context).edit().putBoolean("collapsed", on).apply()
     }
 
     private val cb = object : Choreographer.FrameCallback {
@@ -123,10 +144,34 @@ class WindView(ctx: Context) : View(ctx) {
     }
 
     override fun onMeasure(wSpec: Int, hSpec: Int) {
-        setMeasuredDimension((bw * scale).toInt(), (bh * scale).toInt())
+        if (collapsed) {
+            setMeasuredDimension(cs.toInt(), cs.toInt())
+        } else {
+            setMeasuredDimension((bw * scale).toInt(), (bh * scale).toInt())
+        }
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (collapsed) {
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    sx = e.rawX
+                    sy = e.rawY
+                    moved = false
+                    onDown?.invoke()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - sx
+                    val dy = e.rawY - sy
+                    if (abs(dx) + abs(dy) > 8 * d) moved = true
+                    if (moved) onMove?.invoke(dx.toInt(), dy.toInt())
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) setCollapsed(false)
+                }
+            }
+            return true
+        }
         val x = e.x / scale
         val y = e.y / scale
         when (e.action) {
@@ -155,6 +200,7 @@ class WindView(ctx: Context) : View(ctx) {
                 if (!moved && y < hh + 4 * d) {
                     if (x > bw - 36 * d) onClose?.invoke()
                     else if (x > bw - 70 * d) onGear?.invoke()
+                    else if (x > bw - 104 * d) setCollapsed(true)
                 }
             }
         }
@@ -162,6 +208,14 @@ class WindView(ctx: Context) : View(ctx) {
     }
 
     override fun onDraw(c: Canvas) {
+        if (collapsed) {
+            val r = cs / 2
+            c.drawCircle(r, r, r - 2 * d, bg)
+            c.drawCircle(r, r, r - 2 * d, ring)
+            val ty = r - (bubbleText.ascent() + bubbleText.descent()) / 2
+            c.drawText("T", r, ty, bubbleText)
+            return
+        }
         c.save()
         c.scale(scale, scale)
 
@@ -184,10 +238,12 @@ class WindView(ctx: Context) : View(ctx) {
         c.restore()
         c.drawRoundRect(0f, 0f, bw, bh, 18 * d, 18 * d, border)
 
-        // cabecalho: nome, engrenagem, fechar
+        // cabecalho: nome, minimizar, engrenagem, fechar
         c.drawText("THEK", pad, hh * 0.72f, label)
         val gx = bw - 52 * d
         val gy = hh / 2 + 2 * d
+        val mx = bw - 84 * d
+        c.drawLine(mx - 5 * d, gy, mx + 5 * d, gy, icon)
         c.drawCircle(gx, gy, 5 * d, icon)
         for (k in 0 until 8) {
             val a = k * 0.785f
