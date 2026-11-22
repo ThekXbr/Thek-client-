@@ -28,4 +28,12 @@ class MainActivity : Activity() {
         fun btn(t: String, a: () -> Unit) = root.addView(Button(this).apply { text = t; setOnClickListener { a() } })
 
         btn("1. Permitir sobreposicao") {
-            startActivity(Intent(Settings.ACTION_MANAGE
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        }
+        btn("2. Iniciar HUD") {
+            if (Settings.canDrawOverlays(this)) startForegroundService(Intent(this, OverlayService::class.java))
+        }
+        btn("Parar HUD") { stopService(Intent(this, OverlayService::class.java)) }
+        setContentView(root)
+    }
+}
