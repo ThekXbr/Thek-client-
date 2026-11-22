@@ -1,22 +1,20 @@
 package com.thek.cliente
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
+import android.app.*
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
+import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.WindowManager
 
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private lateinit var lp: WindowManager.LayoutParams
     private var view: WindView? = null
+    private var menu: MenuView? = null
     private var maxHz = 60f
     private val handler = Handler(Looper.getMainLooper())
 
@@ -39,16 +37,54 @@ class OverlayService : Service() {
 
     override fun onBind(i: Intent?) = null
 
+    private fun toggleMenu() {
+        val m = menu
+        if (m != null) {
+            wm.removeView(m)
+            menu = null
+            return
+        }
+        val dm = resources.displayMetrics
+        val mw = minOf(dm.widthPixels * 0.94f, 380 * dm.density).toInt()
+        val mh = (dm.heightPixels * 0.62f).toInt()
+        val mp = WindowManager.LayoutParams(
+            mw, mh,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+        }
+        val nm = MenuView(this) { toggleMenu() }
+        menu = nm
+        wm.addView(nm, mp)
+    }
+
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
+        if (i?.action == "STOP") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (view != null) return START_STICKY
 
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel("hud", "Thek Cliente", NotificationManager.IMPORTANCE_LOW)
         )
+        val stopPi = PendingIntent.getService(
+            this, 0,
+            Intent(this, OverlayService::class.java).setAction("STOP"),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val act = Notification.Action.Builder(
+            Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+            "Fechar HUD", stopPi
+        ).build()
         val notif = Notification.Builder(this, "hud")
             .setContentTitle("Thek Cliente ativo")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .addAction(act)
             .build()
         startForeground(1, notif)
 
@@ -71,26 +107,19 @@ class OverlayService : Service() {
 
         val v = WindView(this)
         view = v
-        var sx = 0f
-        var sy = 0f
         var ox = 0
         var oy = 0
-        v.setOnTouchListener { _, e ->
-            when (e.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    sx = e.rawX
-                    sy = e.rawY
-                    ox = lp.x
-                    oy = lp.y
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    lp.x = ox + (e.rawX - sx).toInt()
-                    lp.y = oy + (e.rawY - sy).toInt()
-                    wm.updateViewLayout(v, lp)
-                }
-            }
-            true
+        v.onDown = {
+            ox = lp.x
+            oy = lp.y
         }
+        v.onMove = { dx, dy ->
+            lp.x = ox + dx
+            lp.y = oy + dy
+            wm.updateViewLayout(v, lp)
+        }
+        v.onGear = { toggleMenu() }
+        v.onClose = { stopSelf() }
         wm.addView(v, lp)
         Prefs.get(this).registerOnSharedPreferenceChangeListener(listener)
         handler.post(tick)
@@ -100,6 +129,8 @@ class OverlayService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(listener)
+        menu?.let { wm.removeView(it) }
+        menu = null
         view?.let { wm.removeView(it) }
         view = null
         super.onDestroy()
