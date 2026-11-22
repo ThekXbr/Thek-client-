@@ -5,10 +5,13 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.WindowManager
+import kotlin.math.abs
 
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
@@ -16,6 +19,8 @@ class OverlayService : Service() {
     private var view: WindView? = null
     private var menu: MenuView? = null
     private var maxHz = 60f
+    private var tx = 40
+    private var ty = 120
     private val handler = Handler(Looper.getMainLooper())
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -29,9 +34,30 @@ class OverlayService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             val v = view ?: return
-            val game = Prefs.get(this@OverlayService).getBoolean("show_game", true)
-            v.stats = Sampler.sample(this@OverlayService, v.fps, maxHz, game)
+            val p = Prefs.get(this@OverlayService)
+            if (Perf.running) {
+                val s = Sampler.sample(this@OverlayService, v.fps, maxHz, p.getBoolean("show_game", true))
+                v.stats = s
+                Perf.stats = s
+                Perf.push(v.fps)
+            }
+            if (p.getBoolean("show_music", true)) Music.refresh(this@OverlayService)
             handler.postDelayed(this, 1000)
+        }
+    }
+
+    // movimento suave: a janela persegue a posicao alvo
+    private val ease = object : Choreographer.FrameCallback {
+        override fun doFrame(t: Long) {
+            val v = view ?: return
+            val dx = tx - lp.x
+            val dy = ty - lp.y
+            if (dx != 0 || dy != 0) {
+                lp.x += if (abs(dx) < 2) dx else (dx * 0.4f).toInt()
+                lp.y += if (abs(dy) < 2) dy else (dy * 0.4f).toInt()
+                wm.updateViewLayout(v, lp)
+            }
+            Choreographer.getInstance().postFrameCallback(this)
         }
     }
 
@@ -46,15 +72,18 @@ class OverlayService : Service() {
         }
         val dm = resources.displayMetrics
         val mw = minOf(dm.widthPixels * 0.94f, 380 * dm.density).toInt()
-        val mh = (dm.heightPixels * 0.62f).toInt()
+        val mh = (dm.heightPixels * 0.66f).toInt()
+        var fl = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        if (Build.VERSION.SDK_INT >= 31) fl = fl or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
         val mp = WindowManager.LayoutParams(
             mw, mh,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            fl,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.CENTER
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+            if (Build.VERSION.SDK_INT >= 31) blurBehindRadius = 40
         }
         val nm = MenuView(this) { toggleMenu() }
         menu = nm
@@ -91,18 +120,21 @@ class OverlayService : Service() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         maxHz = wm.defaultDisplay.supportedModes.maxOf { it.refreshRate }
 
+        var hf = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        if (Build.VERSION.SDK_INT >= 31) hf = hf or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
         lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            hf,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 40
-            y = 120
+            x = tx
+            y = ty
             preferredRefreshRate = maxHz
+            if (Build.VERSION.SDK_INT >= 31) blurBehindRadius = 30
         }
 
         val v = WindView(this)
@@ -110,24 +142,25 @@ class OverlayService : Service() {
         var ox = 0
         var oy = 0
         v.onDown = {
-            ox = lp.x
-            oy = lp.y
+            ox = tx
+            oy = ty
         }
         v.onMove = { dx, dy ->
-            lp.x = ox + dx
-            lp.y = oy + dy
-            wm.updateViewLayout(v, lp)
+            tx = ox + dx
+            ty = oy + dy
         }
         v.onGear = { toggleMenu() }
         v.onClose = { stopSelf() }
         wm.addView(v, lp)
         Prefs.get(this).registerOnSharedPreferenceChangeListener(listener)
         handler.post(tick)
+        Choreographer.getInstance().postFrameCallback(ease)
         return START_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        Choreographer.getInstance().removeFrameCallback(ease)
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(listener)
         menu?.let { wm.removeView(it) }
         menu = null
