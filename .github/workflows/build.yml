@@ -19,6 +19,19 @@ jobs:
           mv *.kt app/src/main/java/com/thek/cliente/
           mv AndroidManifest.xml app/src/main/
           mv app-build.gradle.kts app/build.gradle.kts
+          sed -i "s/versionCode = 1/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
+          sed -i 's/versionName = "1.0"/versionName = "${{ github.run_number }}"/' app/build.gradle.kts
+      - name: Restaurar chave de assinatura
+        uses: actions/cache@v4
+        with:
+          path: keystore/thek.jks
+          key: thek-keystore-v1
+      - name: Criar chave se nao existir
+        run: |
+          mkdir -p keystore
+          if [ ! -f keystore/thek.jks ]; then
+            keytool -genkeypair -keystore keystore/thek.jks -storetype PKCS12 -alias thek -keyalg RSA -keysize 2048 -validity 36500 -storepass thekpass123 -keypass thekpass123 -dname "CN=Thek Cliente, O=Thek, C=BR"
+          fi
       - name: Criar icone
         run: |
           mkdir -p app/src/main/res/mipmap-anydpi-v26 app/src/main/res/drawable
