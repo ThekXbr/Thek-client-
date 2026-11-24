@@ -1,7 +1,9 @@
 package com.thek.cliente
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.view.ContextThemeWrapper
@@ -9,6 +11,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
@@ -31,25 +34,43 @@ fun hudControls(ctx: Context, root: LinearLayout) {
             setOnCheckedChangeListener { _, on -> p.edit().putBoolean(k, on).apply() }
         })
     }
-    val cur = p.getInt("scale", 100)
-    val lbl = TextView(ctx).apply {
-        setTextColor(Color.WHITE)
-        text = "Tamanho: $cur%"
-        setPadding(0, 24, 0, 0)
-    }
-    root.addView(lbl)
-    root.addView(SeekBar(ctx).apply {
-        max = 140
-        progress = cur - 60
-        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+    fun slider(title: String, key: String, lo: Int, hi: Int, def: Int) {
+        val cur = p.getInt(key, def)
+        val lbl = TextView(ctx)
+        lbl.setTextColor(Color.WHITE)
+        lbl.text = "$title: $cur%"
+        lbl.setPadding(0, 24, 0, 0)
+        root.addView(lbl)
+        val sb = SeekBar(ctx)
+        sb.max = hi - lo
+        sb.progress = cur - lo
+        sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, v: Int, user: Boolean) {
-                lbl.text = "Tamanho: ${v + 60}%"
-                p.edit().putInt("scale", v + 60).apply()
+                lbl.text = "$title: ${v + lo}%"
+                p.edit().putInt(key, v + lo).apply()
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
-    })
+        root.addView(sb)
+    }
+    slider("Tamanho", "scale", 60, 200, 100)
+    slider("Opacidade", "opacity", 20, 100, 60)
+
+    val pick = Button(ctx)
+    pick.text = "Escolher plano de fundo"
+    pick.isAllCaps = false
+    pick.setOnClickListener {
+        ctx.startActivity(
+            Intent(ctx, PickActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+    root.addView(pick)
+    val clr = Button(ctx)
+    clr.text = "Remover fundo"
+    clr.isAllCaps = false
+    clr.setOnClickListener { Bg.clear(ctx) }
+    root.addView(clr)
 }
 
 class MenuView(base: Context, private val onClose: () -> Unit) :
@@ -58,6 +79,11 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private lateinit var content: FrameLayout
     private lateinit var turbo: TurboPage
     private lateinit var music: MusicPage
+    private val bgIv = ImageView(context)
+    private val panel = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        intArrayOf(0xCC1B2236.toInt(), 0xCC0E1320.toInt())
+    )
     private var web: WebView? = null
     private val d = resources.displayMetrics.density
     private val wm = base.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -69,20 +95,25 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private fun px(v: Int) = (v * d).toInt()
 
     init {
-        background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(0xCC1B2236.toInt(), 0xCC0E1320.toInt())
-        ).apply {
-            cornerRadius = 24 * d
-            setStroke(px(1), 0x55FFFFFF)
+        panel.cornerRadius = 24 * d
+        panel.setStroke(px(1), 0x55FFFFFF)
+        background = panel
+
+        bgIv.scaleType = ImageView.ScaleType.CENTER_CROP
+        bgIv.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(v: View, o: Outline) {
+                o.setRoundRect(0, 0, v.width, v.height, 24 * d)
+            }
         }
+        bgIv.clipToOutline = true
+        addView(bgIv, FrameLayout.LayoutParams(-1, -1))
+
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(px(12), px(6), px(12), px(12))
         }
         addView(col, FrameLayout.LayoutParams(-1, -1))
 
-        // barra para arrastar o menu
         val handle = TextView(context)
         handle.text = "\u2630  arraste aqui"
         handle.textSize = 12f
@@ -207,6 +238,10 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
             Music.refresh(context)
             turbo.update()
             music.update()
+            val op = Bg.opacity(context)
+            bgIv.setImageBitmap(Bg.bitmap(context))
+            bgIv.alpha = op
+            panel.alpha = (120 + 135 * op).toInt()
             this@MenuView.postDelayed(this, 1000)
         }
     }
