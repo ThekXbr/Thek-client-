@@ -2,14 +2,16 @@ package com.thek.cliente
 
 import android.content.Context
 import android.graphics.*
-import android.net.Uri
 import android.os.Build
 import android.view.Choreographer
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.animation.OvershootInterpolator
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -26,20 +28,12 @@ class WindView(ctx: Context) : View(ctx) {
     private val hh = 32 * d
     private val rowH = 32 * d
     private val mh = 42 * d
+    private val foot = 18 * d
     private val bw = 210 * d
     private val cs = 46 * d
     private var bh = 100 * d
-
-    // escalas: alvo (scale/ms) e exibida (ds/dms), a exibida segue o alvo com mola
     private var scale = 1f
-    private var ds = 1f
-    private var vs = 0f
-    private var ms = 1f
-    private var dms = 1f
-    private var vm = 0f
-
-    private var backAlpha = 0.6f
-    private var ready = false
+    private var op = 0.6f
     private var collapsed = false
     private var showMusic = true
     private var rows = listOf<Int>()
@@ -56,14 +50,8 @@ class WindView(ctx: Context) : View(ctx) {
     private var vy = 0f
     private var blurred = false
     private var startScale = 1f
-    private var startMs = 1f
+    private var pinch = 1f
     private var moved = false
-
-    // plano de fundo
-    private var bgUri: String? = null
-    private var bgBmp: Bitmap? = null
-    private val bgM = Matrix()
-    private val bgP = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     private fun paint(col: Int, f: Paint.() -> Unit = {}): Paint {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -72,10 +60,12 @@ class WindView(ctx: Context) : View(ctx) {
         return p
     }
 
-    private val bg = paint(0x99121826.toInt())
+    private val bg = paint(0)
+    private val img = paint(Color.WHITE)
     private val gloss = paint(0)
-    private val spec = paint(0)
-    private val border = paint(0x55FFFFFF) { style = Paint.Style.STROKE; strokeWidth = 1.2f * d }
+    private val sheen = paint(0)
+    private val sheenM = Matrix()
+    private val border = paint(0x55FFFFFF) { style = Paint.Style.STROKE; strokeWidth = 1.4f * d }
     private val icon = paint(0xCCFFFFFF.toInt()) {
         style = Paint.Style.STROKE
         strokeWidth = 2 * d
@@ -106,72 +96,52 @@ class WindView(ctx: Context) : View(ctx) {
     private val names = listOf("FPS", "RAM", "CPU", "GPU", "JOGO")
     private val clip = Path()
 
-    init {
-        applyPrefs()
-        ds = scale
-        dms = ms
-        geometry()
-        ready = true
-    }
+    // pinca com 2 dedos para mudar o tamanho
+    private val sgd = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(g: ScaleGestureDetector): Boolean {
+            pinch = scale
+            return true
+        }
+
+        override fun onScale(g: ScaleGestureDetector): Boolean {
+            pinch = (pinch * g.scaleFactor).coerceIn(0.6f, 2f)
+            Prefs.get(context).edit().putInt("scale", (pinch * 100).roundToInt()).apply()
+            return true
+        }
+    })
+
+    init { applyPrefs() }
 
     private fun musicTop() = hh + max(1, rows.size) * rowH
-
-    private fun loadBg(uriStr: String?) {
-        if (uriStr == bgUri) return
-        bgUri = uriStr
-        bgBmp = null
-        if (uriStr == null) return
-        bgBmp = try {
-            val uri = Uri.parse(uriStr)
-            val b = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, b) }
-            var sample = 1
-            while (max(b.outWidth, b.outHeight) / sample > 800) sample *= 2
-            val o = BitmapFactory.Options().apply { inSampleSize = sample }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    // recalcula tudo que depende da altura atual
-    private fun geometry() {
-        bh = musicTop() + (if (showMusic) mh * dms else 0f) + 14 * d
-        gloss.shader = LinearGradient(0f, 0f, 0f, bh, 0x40FFFFFF, 0x05FFFFFF, Shader.TileMode.CLAMP)
-        spec.shader = RadialGradient(bw * 0.2f, 0f, bw * 0.9f, 0x55FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
-        border.shader = LinearGradient(
-            0f, 0f, bw, bh,
-            intArrayOf(0xCCFFFFFF.toInt(), 0x22FFFFFF, 0x77FFFFFF),
-            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-        )
-        clip.reset()
-        clip.addRoundRect(0f, 0f, bw, bh, 18 * d, 18 * d, Path.Direction.CW)
-    }
 
     fun applyPrefs() {
         val p = Prefs.get(context)
         scale = p.getInt("scale", 100) / 100f
-        ms = p.getInt("music_scale", 100) / 100f
-        backAlpha = p.getInt("bg_alpha", 60) / 100f
-        val wasCollapsed = collapsed
+        op = p.getInt("opacity", 60) / 100f
         collapsed = p.getBoolean("collapsed", false)
         showMusic = p.getBoolean("show_music", true)
         val keys = listOf("show_fps", "show_ram", "show_cpu", "show_gpu", "show_game")
         rows = keys.withIndex().filter { p.getBoolean(it.value, true) }.map { it.index }
-        loadBg(p.getString("bg_uri", null))
+        bh = musicTop() + (if (showMusic) mh else 0f) + foot
+        bg.color = Color.argb((op * 230).toInt(), 0x12, 0x18, 0x26)
+        img.alpha = (op * 230).toInt()
         val a = 0xFF6EE7F9.toInt()
         val b = 0xFFA78BFA.toInt()
         fill.shader = LinearGradient(0f, 0f, bw, 0f, a, b, Shader.TileMode.CLAMP)
         ring.shader = LinearGradient(0f, 0f, cs, cs, a, b, Shader.TileMode.CLAMP)
         wave.shader = LinearGradient(0f, 0f, bw, 0f, 0x336EE7F9, 0x33A78BFA, Shader.TileMode.CLAMP)
-        geometry()
-        if (ready && wasCollapsed != collapsed) {
-            // "pulo" liquido ao minimizar/expandir
-            scaleX = 0.7f
-            scaleY = 0.7f
-            animate().scaleX(1f).scaleY(1f).setDuration(380)
-                .setInterpolator(OvershootInterpolator(2.2f)).start()
-        }
+        gloss.shader = LinearGradient(0f, 0f, 0f, bh, 0x38FFFFFF, 0x05FFFFFF, Shader.TileMode.CLAMP)
+        border.shader = LinearGradient(
+            0f, 0f, bw, bh,
+            intArrayOf(0x99FFFFFF.toInt(), 0x14FFFFFF, 0x66FFFFFF), null, Shader.TileMode.CLAMP
+        )
+        sheen.shader = LinearGradient(
+            0f, 0f, bw * 0.7f, bh * 0.7f,
+            intArrayOf(0x00FFFFFF, 0x30FFFFFF, 0x00FFFFFF),
+            floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.MIRROR
+        )
+        clip.reset()
+        clip.addRoundRect(0f, 0f, bw, bh, 18 * d, 18 * d, Path.Direction.CW)
         requestLayout()
         invalidate()
     }
@@ -190,34 +160,6 @@ class WindView(ctx: Context) : View(ctx) {
                 lastT = t
             }
             phase += 0.03f
-
-            // mola das escalas (leve overshoot = movimento liquido)
-            var changed = false
-            vs += (scale - ds) * 0.18f
-            vs *= 0.72f
-            if (abs(vs) > 0.0004f || abs(scale - ds) > 0.001f) {
-                ds += vs
-                changed = true
-            } else if (ds != scale) {
-                ds = scale
-                vs = 0f
-                changed = true
-            }
-            vm += (ms - dms) * 0.18f
-            vm *= 0.72f
-            if (abs(vm) > 0.0004f || abs(ms - dms) > 0.001f) {
-                dms += vm
-                changed = true
-            } else if (dms != ms) {
-                dms = ms
-                vm = 0f
-                changed = true
-            }
-            if (changed) {
-                geometry()
-                requestLayout()
-            }
-
             if (Build.VERSION.SDK_INT >= 31) {
                 val bx = abs(vx) * 0.5f
                 val by = abs(vy) * 0.5f
@@ -235,8 +177,8 @@ class WindView(ctx: Context) : View(ctx) {
                     blurred = false
                 }
             }
-            vx *= 0.85f
-            vy *= 0.85f
+            vx *= 0.88f
+            vy *= 0.88f
             invalidate()
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -263,7 +205,7 @@ class WindView(ctx: Context) : View(ctx) {
         if (collapsed) {
             setMeasuredDimension(cs.toInt(), cs.toInt())
         } else {
-            setMeasuredDimension((bw * ds).toInt(), (bh * ds).toInt())
+            setMeasuredDimension((bw * scale).toInt(), (bh * scale).toInt())
         }
     }
 
@@ -275,7 +217,12 @@ class WindView(ctx: Context) : View(ctx) {
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        val k = if (collapsed) 1f else ds
+        sgd.onTouchEvent(e)
+        if (sgd.isInProgress || e.pointerCount > 1) {
+            moved = true
+            return true
+        }
+        val k = if (collapsed) 1f else scale
         val x = e.x / k
         val y = e.y / k
         when (e.action) {
@@ -286,14 +233,7 @@ class WindView(ctx: Context) : View(ctx) {
                 ly = sy
                 moved = false
                 startScale = scale
-                startMs = ms
-                mode = when {
-                    // alca do canto inferior direito: tamanho do HUD inteiro
-                    !collapsed && x > bw - 34 * d && y > bh - 34 * d -> 1
-                    // alca do canto inferior esquerdo: tamanho so da parte de musica
-                    !collapsed && showMusic && x < pad + 24 * d && y > bh - 16 * d -> 2
-                    else -> 0
-                }
+                mode = if (!collapsed && x > bw - 50 * d && y > bh - 22 * d) 1 else 0
                 onDown?.invoke()
             }
             MotionEvent.ACTION_MOVE -> {
@@ -301,19 +241,12 @@ class WindView(ctx: Context) : View(ctx) {
                 val dy = e.rawY - sy
                 if (abs(dx) + abs(dy) > 8 * d) moved = true
                 if (moved) {
-                    when (mode) {
-                        1 -> {
-                            val s = ((bw * startScale + dx) / bw).coerceIn(0.6f, 2f)
-                            Prefs.get(context).edit().putInt("scale", (s * 100).roundToInt()).apply()
-                        }
-                        2 -> {
-                            val m = (startMs + dx / (140 * d)).coerceIn(0.7f, 1.6f)
-                            Prefs.get(context).edit().putInt("music_scale", (m * 100).roundToInt()).apply()
-                        }
-                        else -> {
-                            track(e)
-                            onMove?.invoke(dx.toInt(), dy.toInt())
-                        }
+                    if (mode == 1) {
+                        val s = ((bw * startScale + dx) / bw).coerceIn(0.6f, 2f)
+                        Prefs.get(context).edit().putInt("scale", (s * 100).roundToInt()).apply()
+                    } else {
+                        track(e)
+                        onMove?.invoke(dx.toInt(), dy.toInt())
                     }
                 }
             }
@@ -325,11 +258,9 @@ class WindView(ctx: Context) : View(ctx) {
                         if (x > bw - 32 * d) onClose?.invoke()
                         else if (x > bw - 60 * d) onGear?.invoke()
                         else if (x > bw - 88 * d) setCollapsed(true)
-                    } else if (showMusic && y > musicTop() && y < musicTop() + mh * dms) {
-                        val lx2 = (x - pad) / dms
-                        val vw = (bw - 2 * pad) / dms
-                        if (lx2 > vw - 24 * d) Music.next()
-                        else if (lx2 > vw - 52 * d) Music.toggle()
+                    } else if (showMusic && y > musicTop() && y < musicTop() + mh) {
+                        if (x > bw - 38 * d) Now.next()
+                        else if (x > bw - 66 * d) Now.toggle()
                     }
                 }
             }
@@ -337,9 +268,16 @@ class WindView(ctx: Context) : View(ctx) {
         return true
     }
 
-    private fun fit(t: String, p: Paint, w: Float): String {
-        val n = p.breakText(t, true, w, null)
-        return if (n < t.length) t.take(max(0, n - 1)) + "\u2026" else t
+    private fun cropSrc(bm: Bitmap): Rect {
+        val ar = bw / bh
+        val br = bm.width.toFloat() / bm.height
+        return if (br > ar) {
+            val w = (bm.height * ar).toInt()
+            Rect((bm.width - w) / 2, 0, (bm.width + w) / 2, bm.height)
+        } else {
+            val h = (bm.width / ar).toInt()
+            Rect(0, (bm.height - h) / 2, bm.width, (bm.height + h) / 2)
+        }
     }
 
     override fun onDraw(c: Canvas) {
@@ -352,33 +290,27 @@ class WindView(ctx: Context) : View(ctx) {
             return
         }
         c.save()
-        c.scale(ds, ds)
+        // achata um pouco na direcao do movimento (efeito liquido)
+        val sqx = 1f - min(abs(vx) * 0.003f, 0.05f)
+        val sqy = 1f - min(abs(vy) * 0.003f, 0.05f)
+        c.scale(scale * sqx, scale * sqy)
+
         c.save()
         c.clipPath(clip)
-
-        // fundo (base escura + imagem) com transparencia ajustavel
-        val layer = c.saveLayerAlpha(0f, 0f, bw, bh, (backAlpha.coerceIn(0f, 1f) * 255).toInt())
         c.drawRect(0f, 0f, bw, bh, bg)
-        val img = bgBmp
-        if (img != null) {
-            val sc = max(bw / img.width, bh / img.height)
-            bgM.reset()
-            bgM.postScale(sc, sc)
-            bgM.postTranslate((bw - img.width * sc) / 2f, (bh - img.height * sc) / 2f)
-            c.drawBitmap(img, bgM, bgP)
-        }
-        c.restoreToCount(layer)
-
-        // vidro: brilho de cima + reflexo no canto
+        val bm = Bg.bitmap(context)
+        if (bm != null) c.drawBitmap(bm, cropSrc(bm), RectF(0f, 0f, bw, bh), img)
         c.drawRect(0f, 0f, bw, bh, gloss)
-        c.drawRect(0f, 0f, bw, bh, spec)
-        for (n in 0..2) {
+        sheenM.setTranslate(sin(phase * 0.5f) * bw * 0.4f + vx * 3f, cos(phase * 0.4f) * bh * 0.2f)
+        sheen.shader.setLocalMatrix(sheenM)
+        c.drawRect(0f, 0f, bw, bh, sheen)
+        for (k in 0..2) {
             val p = Path()
             p.moveTo(0f, bh)
             var x = 0f
             while (x <= bw) {
-                val ang = x / bw * 6.28f * (1 + n) + phase * (1 + n * 0.6f)
-                p.lineTo(x, bh * (0.8f - n * 0.08f) + sin(ang) * 7 * d)
+                val ang = x / bw * 6.28f * (1 + k) + phase * (1 + k * 0.6f)
+                p.lineTo(x, bh * (0.8f - k * 0.08f) + sin(ang) * 7 * d)
                 x += 6 * d
             }
             p.lineTo(bw, bh)
@@ -397,14 +329,9 @@ class WindView(ctx: Context) : View(ctx) {
         }
         c.drawText("THEK", tx0, hh * 0.66f, label)
         HudParts.header(c, icon, d, bw, hh / 2 + d)
-        // alca direita (HUD inteiro)
-        c.drawLine(bw - 14 * d, bh - 6 * d, bw - 6 * d, bh - 14 * d, icon)
-        c.drawLine(bw - 9 * d, bh - 6 * d, bw - 6 * d, bh - 9 * d, icon)
-        // alca esquerda (so musica)
-        if (showMusic) {
-            c.drawLine(pad, bh - 6 * d, pad - 8 * d, bh - 14 * d, icon)
-            c.drawLine(pad - 5 * d, bh - 6 * d, pad - 8 * d, bh - 9 * d, icon)
-        }
+        // puxador de redimensionar (faixa propria embaixo)
+        c.drawLine(bw - 16 * d, bh - 5 * d, bw - 6 * d, bh - 15 * d, icon)
+        c.drawLine(bw - 11 * d, bh - 5 * d, bw - 6 * d, bh - 10 * d, icon)
 
         rows.forEachIndexed { n, id ->
             val base = hh + n * rowH + 14 * d
@@ -445,14 +372,9 @@ class WindView(ctx: Context) : View(ctx) {
 
         if (showMusic) {
             val top = musicTop()
-            c.drawLine(pad, top, bw - pad, top, border)
-            // tudo da musica e desenhado numa area propria que escala sozinha
-            val vw = (bw - 2 * pad) / dms
-            c.save()
-            c.translate(pad, top)
-            c.scale(dms, dms)
-            val rect = RectF(0f, 6 * d, 30 * d, 36 * d)
-            val art = Music.art
+            c.drawLine(pad, top, bw - pad, top, track)
+            val rect = RectF(pad, top + 6 * d, pad + 30 * d, top + 36 * d)
+            val art = Now.art
             if (art != null) {
                 val pth = Path()
                 pth.addRoundRect(rect, 6 * d, 6 * d, Path.Direction.CW)
@@ -463,13 +385,11 @@ class WindView(ctx: Context) : View(ctx) {
             } else {
                 c.drawRoundRect(rect, 6 * d, 6 * d, track)
             }
-            val maxW = vw - 38 * d - 50 * d
-            val tt = Music.title ?: (if (Music.access) "Nada tocando" else "Ative o acesso")
-            c.drawText(fit(tt, ttl, maxW), 38 * d, 18 * d, ttl)
-            c.drawText(fit(Music.artist ?: "", dim, maxW), 38 * d, 31 * d, dim)
-            HudParts.play(c, solid, vw - 38 * d, 21 * d, 6 * d, Music.playing)
-            HudParts.next(c, solid, vw - 10 * d, 21 * d, 6 * d)
-            c.restore()
+            val tt = Now.title ?: "Nada tocando"
+            c.drawText(tt.take(15), pad + 38 * d, top + 18 * d, ttl)
+            c.drawText((Now.artist ?: "").take(18), pad + 38 * d, top + 31 * d, dim)
+            HudParts.play(c, solid, bw - 52 * d, top + 21 * d, 6 * d, Now.playing)
+            HudParts.next(c, solid, bw - 24 * d, top + 21 * d, 6 * d)
         }
         c.restore()
     }
