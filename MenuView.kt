@@ -2,8 +2,10 @@ package com.thek.cliente
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.view.ContextThemeWrapper
@@ -77,6 +79,7 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     FrameLayout(ContextThemeWrapper(base, android.R.style.Theme_Material_NoActionBar)) {
 
     private lateinit var content: FrameLayout
+    private lateinit var tabs: LinearLayout
     private lateinit var turbo: TurboPage
     private lateinit var music: MusicPage
     private val bgIv = ImageView(context)
@@ -91,6 +94,8 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private var sy = 0f
     private var ox = 0
     private var oy = 0
+    private var ow = 0
+    private var oh = 0
 
     private fun px(v: Int) = (v * d).toInt()
 
@@ -138,7 +143,7 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         }
         col.addView(handle, LinearLayout.LayoutParams(-1, -2))
 
-        val tabs = LinearLayout(context)
+        tabs = LinearLayout(context)
         col.addView(tabs, LinearLayout.LayoutParams(-1, -2))
         content = FrameLayout(context)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -150,30 +155,57 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         content.addView(music, FrameLayout.LayoutParams(-1, -1))
         content.addView(hudPage(), FrameLayout.LayoutParams(-1, -1))
 
-        val icons = listOf("\uD83D\uDE80", "\uD83D\uDD0D", "\uD83C\uDFB5", "\u2699")
-        icons.forEachIndexed { i, ic ->
-            tabs.addView(TextView(context).apply {
-                text = ic
-                textSize = 24f
-                gravity = Gravity.CENTER
-                setPadding(0, px(6), 0, px(6))
-                setOnClickListener { show(i) }
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+        val kinds = listOf(IC.ROCKET, IC.SEARCH, IC.NOTE, IC.GEAR)
+        kinds.forEachIndexed { i, k ->
+            val ic = Ico(context, k, 0xFF9AA4BF.toInt())
+            ic.setPadding(0, px(8), 0, px(8))
+            ic.setOnClickListener { show(i) }
+            tabs.addView(ic, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        tabs.addView(TextView(context).apply {
-            text = "\u2715"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(px(12), px(6), px(12), px(6))
-            setOnClickListener { onClose() }
-        })
+        val x = Ico(context, IC.CLOSE, Color.WHITE)
+        x.setPadding(px(12), px(8), px(12), px(8))
+        x.setOnClickListener { onClose() }
+        tabs.addView(x)
+
+        // puxador para redimensionar o menu
+        val grip = object : View(context) {
+            private val gp = Paint(Paint.ANTI_ALIAS_FLAG)
+            override fun onDraw(c: Canvas) {
+                gp.color = 0xCCFFFFFF.toInt()
+                gp.strokeWidth = 2 * d
+                gp.strokeCap = Paint.Cap.ROUND
+                val w = width.toFloat()
+                val h = height.toFloat()
+                c.drawLine(w - 8 * d, h - 20 * d, w - 20 * d, h - 8 * d, gp)
+                c.drawLine(w - 8 * d, h - 12 * d, w - 12 * d, h - 8 * d, gp)
+            }
+        }
+        grip.setOnTouchListener { _, e ->
+            val lp = layoutParams as? WindowManager.LayoutParams
+            if (lp != null) {
+                val dm = resources.displayMetrics
+                if (e.action == MotionEvent.ACTION_DOWN) {
+                    sx = e.rawX
+                    sy = e.rawY
+                    ow = lp.width
+                    oh = lp.height
+                } else if (e.action == MotionEvent.ACTION_MOVE) {
+                    lp.width = (ow + (e.rawX - sx) * 2).toInt().coerceIn(px(260), dm.widthPixels)
+                    lp.height = (oh + (e.rawY - sy) * 2).toInt().coerceIn(px(320), dm.heightPixels)
+                    wm.updateViewLayout(this@MenuView, lp)
+                }
+            }
+            true
+        }
+        addView(grip, FrameLayout.LayoutParams(px(44), px(44), Gravity.BOTTOM or Gravity.END))
         show(0)
     }
 
     private fun show(i: Int) {
         for (n in 0 until content.childCount) {
             content.getChildAt(n).visibility = if (n == i) View.VISIBLE else View.GONE
+            val ic = tabs.getChildAt(n) as Ico
+            ic.set(ic.kind, if (n == i) 0xFF6EE7F9.toInt() else 0xFF9AA4BF.toInt())
         }
     }
 
