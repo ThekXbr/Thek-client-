@@ -3,8 +3,6 @@ package com.thek.cliente
 import android.Manifest
 import android.animation.ObjectAnimator
 import android.app.Activity
-import android.app.AppOpsManager
-import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
@@ -13,10 +11,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.media.ToneGenerator
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -24,14 +20,13 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.widget.*
 import kotlin.math.cos
 import kotlin.math.sin
 
-class AnimBg(c: Context) : View(c) {
+class AnimBg(c: android.content.Context) : View(c) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rnd = java.util.Random(7)
     private val px = FloatArray(28) { rnd.nextFloat() }
@@ -81,133 +76,166 @@ class AnimBg(c: Context) : View(c) {
 class MainActivity : Activity() {
     private lateinit var tone: ToneGenerator
     private val h = Handler(Looper.getMainLooper())
-    private lateinit var ovBtn: Button
-    private lateinit var usBtn: Button
-    private lateinit var permLbl: TextView
+    private lateinit var root: FrameLayout
+    private lateinit var ui: LinearLayout
+    private lateinit var pagesBox: FrameLayout
+    private lateinit var navBox: LinearLayout
+    private lateinit var turbo: TurboPage
+    private lateinit var tut: TutorialPage
+    private lateinit var hudSw: Switch
+    private var suppress = false
+    private var leaving = false
+    private var lastToggle = 0L
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-
-    private fun usageOk(): Boolean {
-        val ao = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = ao.checkOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            android.os.Process.myUid(), packageName
-        )
-        return mode == AppOpsManager.MODE_ALLOWED
-    }
 
     private fun beep() {
         try { tone.startTone(ToneGenerator.TONE_PROP_BEEP, 80) } catch (e: Exception) {}
     }
 
-    private fun mkBtn(t: String, a: () -> Unit): Button {
-        val b = Button(this)
-        b.text = t
-        b.isAllCaps = false
-        b.setTextColor(Color.WHITE)
-        b.background = GradientDrawable().apply {
-            setColor(0x33FFFFFF)
-            cornerRadius = dp(16).toFloat()
-            setStroke(dp(1), 0x666EE7F9)
-        }
-        b.setOnTouchListener { v, e ->
-            if (e.action == MotionEvent.ACTION_DOWN) {
-                v.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start()
-            } else if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
-                v.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+    private val tick = object : Runnable {
+        override fun run() {
+            if (!Hud.on) Perf.stats = Sampler.sample(this@MainActivity, 0f, 60f, true)
+            turbo.update()
+            tut.update()
+            val settled = System.currentTimeMillis() - lastToggle > 2500
+            if (settled && hudSw.isChecked != Hud.on) {
+                suppress = true
+                hudSw.isChecked = Hud.on
+                suppress = false
             }
-            false
+            h.postDelayed(this, 1000)
         }
-        b.setOnClickListener {
-            beep()
-            a()
-        }
-        return b
     }
 
-    override fun onCreate(b: Bundle?) {
-        super.onCreate(b)
-        tone = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
-        if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        }
-        val root = FrameLayout(this)
-        root.addView(AnimBg(this))
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(56), dp(24), dp(24))
-        }
-        root.addView(ScrollView(this).apply { addView(col) })
-        setContentView(root)
-
-        val logo = TextView(this).apply {
-            text = "THEK\nCLIENTE"
-            textSize = 40f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.15f
-            alpha = 0f
-            scaleX = 0.5f
-            scaleY = 0.5f
-        }
-        val status = TextView(this).apply {
-            text = "Iniciando..."
-            setTextColor(0xFF6EE7F9.toInt())
-            gravity = Gravity.CENTER
-            setPadding(0, dp(16), 0, dp(8))
-        }
-        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        bar.max = 100
-        col.addView(logo)
-        col.addView(status)
-        col.addView(bar, LinearLayout.LayoutParams(-1, dp(6)))
-
-        val menu = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.INVISIBLE
-        }
-        col.addView(menu, LinearLayout.LayoutParams(-1, -2))
-
-        permLbl = TextView(this).apply {
-            text = "Permissoes necessarias"
-            setTextColor(0xFF9AA4BF.toInt())
-            setPadding(0, dp(24), 0, dp(8))
-        }
-        ovBtn = mkBtn("1. Permitir sobreposicao") {
-            startActivity(
-                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-            )
-        }
-        usBtn = mkBtn("2. Acesso de uso (mostrar jogo)") {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }
-        val start = mkBtn("Iniciar HUD") {
+    private fun toggleHud(on: Boolean) {
+        lastToggle = System.currentTimeMillis()
+        if (on) {
             if (Settings.canDrawOverlays(this)) {
                 startForegroundService(Intent(this, OverlayService::class.java))
             } else {
-                Toast.makeText(this, "Permita a sobreposicao primeiro", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permita a sobreposicao no Tutorial", Toast.LENGTH_SHORT).show()
+                suppress = true
+                hudSw.isChecked = false
+                suppress = false
+                showPage(2)
             }
+        } else {
+            startService(Intent(this, OverlayService::class.java).setAction("STOP"))
         }
-        val stop = mkBtn("Parar HUD") {
-            stopService(Intent(this, OverlayService::class.java))
-        }
-        val tip = TextView(this).apply {
-            text = "No HUD: toque na engrenagem para abrir o menu, arraste o canto para mudar o tamanho e use o X para fechar."
-            setTextColor(0xFF9AA4BF.toInt())
-            textSize = 12f
-            setPadding(0, dp(16), 0, dp(8))
-        }
-        menu.addView(permLbl)
-        menu.addView(ovBtn)
-        menu.addView(usBtn)
-        menu.addView(start)
-        menu.addView(stop)
-        menu.addView(tip)
-        hudControls(this, menu)
+    }
 
-        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(800)
+    private fun showPage(i: Int) {
+        for (n in 0 until pagesBox.childCount) {
+            pagesBox.getChildAt(n).visibility = if (n == i) View.VISIBLE else View.GONE
+            val cell = navBox.getChildAt(n) as LinearLayout
+            val ic = cell.getChildAt(0) as Ico
+            val col = if (n == i) 0xFF6EE7F9.toInt() else 0xFF7A849E.toInt()
+            ic.set(ic.kind, col)
+            (cell.getChildAt(1) as TextView).setTextColor(col)
+        }
+    }
+
+    private fun buildUi() {
+        ui = LinearLayout(this)
+        ui.orientation = LinearLayout.VERTICAL
+        ui.visibility = View.INVISIBLE
+        ui.setPadding(dp(14), dp(40), dp(14), dp(10))
+
+        val top = LinearLayout(this)
+        top.gravity = Gravity.CENTER_VERTICAL
+        val tt = TextView(this)
+        tt.text = "Thek Cliente"
+        tt.textSize = 13f
+        tt.setTextColor(0xFF9AA4BF.toInt())
+        top.addView(tt, LinearLayout.LayoutParams(0, -2, 1f))
+        hudSw = Switch(this)
+        hudSw.text = "HUD  "
+        hudSw.setTextColor(Color.WHITE)
+        hudSw.setOnCheckedChangeListener { _, on ->
+            beep()
+            if (!suppress) toggleHud(on)
+        }
+        top.addView(hudSw)
+        ui.addView(top)
+
+        pagesBox = FrameLayout(this)
+        turbo = TurboPage(this)
+        val p0 = ScrollView(this)
+        p0.addView(turbo)
+        val set = LinearLayout(this)
+        set.orientation = LinearLayout.VERTICAL
+        set.setPadding(dp(8), dp(12), dp(8), dp(8))
+        val st = TextView(this)
+        st.text = "Ajustes do HUD"
+        st.textSize = 20f
+        st.setTextColor(0xFF6EE7F9.toInt())
+        set.addView(st)
+        hudControls(this, set)
+        val p1 = ScrollView(this)
+        p1.addView(set)
+        tut = TutorialPage(this)
+        pagesBox.addView(p0, FrameLayout.LayoutParams(-1, -1))
+        pagesBox.addView(p1, FrameLayout.LayoutParams(-1, -1))
+        pagesBox.addView(tut, FrameLayout.LayoutParams(-1, -1))
+        ui.addView(pagesBox, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        navBox = LinearLayout(this)
+        navBox.background = glassBg(this, 20)
+        val items = listOf(IC.ROCKET to "Turbo", IC.GEAR to "Ajustes", IC.BOOK to "Tutorial")
+        items.forEachIndexed { i, pr ->
+            val cell = LinearLayout(this)
+            cell.orientation = LinearLayout.VERTICAL
+            cell.gravity = Gravity.CENTER
+            cell.setPadding(0, dp(8), 0, dp(8))
+            cell.addView(Ico(this, pr.first), LinearLayout.LayoutParams(dp(26), dp(26)))
+            val tx = TextView(this)
+            tx.text = pr.second
+            tx.textSize = 11f
+            tx.gravity = Gravity.CENTER
+            cell.addView(tx)
+            cell.setOnClickListener {
+                beep()
+                showPage(i)
+            }
+            navBox.addView(cell, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        val nl = LinearLayout.LayoutParams(-1, -2)
+        nl.setMargins(0, dp(8), 0, 0)
+        ui.addView(navBox, nl)
+        showPage(if (Settings.canDrawOverlays(this)) 0 else 2)
+    }
+
+    private fun buildSplash() {
+        val sp = LinearLayout(this)
+        sp.orientation = LinearLayout.VERTICAL
+        sp.gravity = Gravity.CENTER
+        val rk = Ico(this, IC.ROCKET, 0xFF6EE7F9.toInt())
+        rk.alpha = 0f
+        rk.scaleX = 0.5f
+        rk.scaleY = 0.5f
+        rk.translationY = dp(60).toFloat()
+        sp.addView(rk, LinearLayout.LayoutParams(dp(84), dp(84)))
+        val logo = TextView(this)
+        logo.text = "THEK TURBO"
+        logo.textSize = 34f
+        logo.gravity = Gravity.CENTER
+        logo.setTextColor(Color.WHITE)
+        logo.typeface = Typeface.DEFAULT_BOLD
+        logo.letterSpacing = 0.12f
+        sp.addView(logo)
+        val status = TextView(this)
+        status.text = "Iniciando..."
+        status.setTextColor(0xFF6EE7F9.toInt())
+        status.gravity = Gravity.CENTER
+        status.setPadding(0, dp(16), 0, dp(8))
+        sp.addView(status)
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        bar.max = 100
+        sp.addView(bar, LinearLayout.LayoutParams(dp(220), dp(6)))
+        root.addView(sp, FrameLayout.LayoutParams(-1, -1))
+
+        rk.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(800)
             .setInterpolator(OvershootInterpolator(1.6f)).start()
         ObjectAnimator.ofInt(bar, "progress", 0, 100).setDuration(2000).start()
         val msgs = listOf("Iniciando...", "Carregando modulos...", "Verificando permissoes...", "Pronto!")
@@ -218,29 +246,54 @@ class MainActivity : Activity() {
             }, 500L * i)
         }
         h.postDelayed({
-            status.animate().alpha(0f).setDuration(300).start()
-            bar.animate().alpha(0f).setDuration(300).start()
-            menu.visibility = View.VISIBLE
-            for (i in 0 until menu.childCount) {
-                val v = menu.getChildAt(i)
+            rk.animate().translationY(-dp(260).toFloat()).alpha(0f).setDuration(600).start()
+            sp.animate().alpha(0f).setDuration(600).withEndAction { sp.visibility = View.GONE }.start()
+            ui.visibility = View.VISIBLE
+            for (i in 0 until ui.childCount) {
+                val v = ui.getChildAt(i)
                 v.alpha = 0f
                 v.translationY = dp(40).toFloat()
-                v.animate().alpha(1f).translationY(0f).setStartDelay(i * 80L).setDuration(400).start()
+                v.animate().alpha(1f).translationY(0f).setStartDelay(i * 90L).setDuration(450).start()
             }
         }, 2100)
     }
 
-    private fun refresh() {
-        val ov = Settings.canDrawOverlays(this)
-        val us = usageOk()
-        ovBtn.visibility = if (ov) View.GONE else View.VISIBLE
-        usBtn.visibility = if (us) View.GONE else View.VISIBLE
-        permLbl.visibility = if (ov && us) View.GONE else View.VISIBLE
+    override fun onCreate(b: Bundle?) {
+        super.onCreate(b)
+        tone = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+        root = FrameLayout(this)
+        root.addView(AnimBg(this))
+        buildUi()
+        root.addView(ui, FrameLayout.LayoutParams(-1, -1))
+        buildSplash()
+        setContentView(root)
+        h.post(tick)
+    }
+
+    // despedida ao sair do app
+    override fun onBackPressed() {
+        if (leaving) return
+        leaving = true
+        beep()
+        val bye = ByeView(this)
+        bye.alpha = 0f
+        bye.scaleX = 0.8f
+        bye.scaleY = 0.8f
+        root.addView(bye, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        bye.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).start()
+        ui.animate().alpha(0f).setDuration(500).start()
+        h.postDelayed({
+            finish()
+            overridePendingTransition(0, android.R.anim.fade_out)
+        }, 1300)
     }
 
     override fun onResume() {
         super.onResume()
-        refresh()
+        if (::tut.isInitialized) tut.update()
     }
 
     override fun onDestroy() {
