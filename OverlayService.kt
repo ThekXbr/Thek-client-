@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.graphics.drawable.Icon
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +20,8 @@ class OverlayService : Service() {
     private lateinit var lp: WindowManager.LayoutParams
     private var view: WindView? = null
     private var menu: MenuView? = null
+    private var byeView: ByeView? = null
+    private var closing = false
     private var maxHz = 60f
     private var tx = 40
     private var ty = 120
@@ -25,7 +29,7 @@ class OverlayService : Service() {
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         val v = view
-        if (v != null) {
+        if (v != null && !closing) {
             v.applyPrefs()
             wm.updateViewLayout(v, lp)
         }
@@ -46,13 +50,12 @@ class OverlayService : Service() {
         }
     }
 
-    // movimento suave: a janela persegue a posicao alvo
     private val ease = object : Choreographer.FrameCallback {
         override fun doFrame(t: Long) {
             val v = view ?: return
             val dx = tx - lp.x
             val dy = ty - lp.y
-            if (dx != 0 || dy != 0) {
+            if ((dx != 0 || dy != 0) && !closing) {
                 lp.x += if (abs(dx) < 2) dx else (dx * 0.4f).toInt()
                 lp.y += if (abs(dy) < 2) dy else (dy * 0.4f).toInt()
                 wm.updateViewLayout(v, lp)
@@ -90,9 +93,39 @@ class OverlayService : Service() {
         wm.addView(nm, mp)
     }
 
+    // despedida e fechamento suave
+    private fun bye() {
+        if (closing) return
+        closing = true
+        menu?.let { wm.removeView(it) }
+        menu = null
+        try {
+            ToneGenerator(AudioManager.STREAM_MUSIC, 60).startTone(ToneGenerator.TONE_PROP_ACK, 200)
+        } catch (e: Exception) {
+        }
+        val b = ByeView(this)
+        val bp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.CENTER }
+        b.alpha = 0f
+        b.scaleX = 0.8f
+        b.scaleY = 0.8f
+        wm.addView(b, bp)
+        byeView = b
+        b.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).start()
+        view?.animate()?.alpha(0f)?.scaleX(0.8f)?.scaleY(0.8f)?.setDuration(500)?.start()
+        handler.postDelayed({
+            b.animate().alpha(0f).setDuration(400).withEndAction { stopSelf() }.start()
+        }, 1300)
+    }
+
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         if (i?.action == "STOP") {
-            stopSelf()
+            if (view == null) stopSelf() else bye()
             return START_NOT_STICKY
         }
         if (view != null) return START_STICKY
@@ -150,8 +183,9 @@ class OverlayService : Service() {
             ty = oy + dy
         }
         v.onGear = { toggleMenu() }
-        v.onClose = { stopSelf() }
+        v.onClose = { bye() }
         wm.addView(v, lp)
+        Hud.on = true
         Prefs.get(this).registerOnSharedPreferenceChangeListener(listener)
         handler.post(tick)
         Choreographer.getInstance().postFrameCallback(ease)
@@ -159,12 +193,15 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        Hud.on = false
         handler.removeCallbacksAndMessages(null)
         Choreographer.getInstance().removeFrameCallback(ease)
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(listener)
-        menu?.let { wm.removeView(it) }
+        try { menu?.let { wm.removeView(it) } } catch (e: Exception) {}
         menu = null
-        view?.let { wm.removeView(it) }
+        try { byeView?.let { wm.removeView(it) } } catch (e: Exception) {}
+        byeView = null
+        try { view?.let { wm.removeView(it) } } catch (e: Exception) {}
         view = null
         super.onDestroy()
     }
