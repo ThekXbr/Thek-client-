@@ -87,14 +87,21 @@ class TurboPage(ctx: Context) : LinearLayout(ctx) {
         return p
     }
 
-    private fun tile(t: String, a: () -> Unit): TextView {
-        val v = TextView(context)
-        v.text = t
-        v.textSize = 12f
-        v.setTextColor(Color.WHITE)
+    private fun tile(kind: Int, t: String, a: () -> Unit): LinearLayout {
+        val v = LinearLayout(context)
+        v.orientation = LinearLayout.VERTICAL
         v.gravity = Gravity.CENTER
-        v.setPadding(px(6), px(14), px(6), px(14))
+        v.setPadding(px(6), px(12), px(6), px(12))
         v.background = glassBg(context)
+        v.addView(Ico(context, kind, 0xFF6EE7F9.toInt()), LinearLayout.LayoutParams(px(26), px(26)))
+        val tv = TextView(context)
+        tv.text = t
+        tv.textSize = 11f
+        tv.setTextColor(Color.WHITE)
+        tv.gravity = Gravity.CENTER
+        tv.setPadding(0, px(6), 0, 0)
+        v.addView(tv)
+        v.tag = tv
         v.setOnClickListener { a() }
         return v
     }
@@ -131,7 +138,7 @@ class TurboPage(ctx: Context) : LinearLayout(ctx) {
         head.gravity = Gravity.CENTER_VERTICAL
         val title = TextView(ctx)
         title.text = "THEK TURBO"
-        title.textSize = 18f
+        title.textSize = 20f
         title.setTextColor(0xFF6EE7F9.toInt())
         title.typeface = Typeface.DEFAULT_BOLD
         head.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
@@ -183,12 +190,13 @@ class TurboPage(ctx: Context) : LinearLayout(ctx) {
         addView(card, cp)
 
         val row = LinearLayout(ctx)
-        timerTv = tile("\u23F1 Timer") {
+        val tTimer = tile(IC.TIMER, "Timer") {
             tStart = if (tStart == 0L) System.currentTimeMillis() else 0L
         }
-        row.addView(tile("\uD83E\uDDF9 Limpar memoria") { cleanMem() }, lpw())
-        row.addView(timerTv, lpw())
-        row.addView(tile("\uD83D\uDD15 Nao perturbe") { dnd() }, lpw())
+        timerTv = tTimer.tag as TextView
+        row.addView(tile(IC.BROOM, "Limpar memoria") { cleanMem() }, lpw())
+        row.addView(tTimer, lpw())
+        row.addView(tile(IC.DND, "Nao perturbe") { dnd() }, lpw())
         addView(row)
     }
 
@@ -196,7 +204,7 @@ class TurboPage(ctx: Context) : LinearLayout(ctx) {
         val s = Perf.stats
         cpuTv.text = "CPU  ${s.cpuPct?.roundToInt() ?: "-"}%"
         gpuTv.text = "GPU  ${s.gpuPct?.roundToInt() ?: "-"}%"
-        fpsTv.text = "${s.fps.roundToInt()}"
+        fpsTv.text = if (Hud.on) "${s.fps.roundToInt()}" else "--"
         gameTv.text = s.game ?: "Nenhum jogo"
         if (s.gamePkg != shownPkg) {
             shownPkg = s.gamePkg
@@ -210,7 +218,7 @@ class TurboPage(ctx: Context) : LinearLayout(ctx) {
             }
         }
         if (tStart == 0L) {
-            timerTv.text = "\u23F1 Timer"
+            timerTv.text = "Timer"
         } else {
             val sec = (System.currentTimeMillis() - tStart) / 1000
             timerTv.text = String.format("%02d:%02d", sec / 60, sec % 60)
