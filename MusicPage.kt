@@ -22,7 +22,7 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
     private val results = LinearLayout(ctx)
     private val accessBox = LinearLayout(ctx)
     private val et = EditText(ctx)
-    private lateinit var playTv: TextView
+    private lateinit var playIc: Ico
     private var shownIdx = -2
 
     private fun px(v: Int) = (v * d).toInt()
@@ -57,14 +57,10 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
         }
     }
 
-    private fun ctl(t: String, a: () -> Unit): TextView {
-        val v = TextView(context)
-        v.text = t
-        v.textSize = 24f
-        v.setTextColor(Color.WHITE)
-        v.gravity = Gravity.CENTER
+    private fun ctl(kind: Int, a: () -> Unit): Ico {
+        val v = Ico(context, kind)
         v.background = glassBg(context, 30)
-        v.setPadding(px(16), px(6), px(16), px(6))
+        v.setPadding(px(16), px(10), px(16), px(10))
         v.setOnClickListener { a() }
         return v
     }
@@ -110,7 +106,6 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
         status.setTextColor(0xFF9AA4BF.toInt())
         p.addView(status)
 
-        // tocando agora
         val card = LinearLayout(ctx)
         card.orientation = LinearLayout.VERTICAL
         card.background = glassBg(ctx, 18)
@@ -146,12 +141,12 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
         card.addView(prog, pp)
         val row = LinearLayout(ctx)
         row.gravity = Gravity.CENTER
-        playTv = ctl("\u25B6") { Now.toggle() }
-        row.addView(ctl("\u23EE") { Now.prev() })
+        playIc = ctl(IC.PLAY) { Now.toggle() }
+        row.addView(ctl(IC.PREV) { Now.prev() })
         val rp = LinearLayout.LayoutParams(-2, -2)
         rp.setMargins(px(12), 0, px(12), 0)
-        row.addView(playTv, rp)
-        row.addView(ctl("\u23ED") { Now.next() })
+        row.addView(playIc, rp)
+        row.addView(ctl(IC.NEXT) { Now.next() })
         card.addView(row)
         val cp = LinearLayout.LayoutParams(-1, -2)
         cp.setMargins(0, px(8), 0, px(8))
@@ -160,7 +155,6 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
         results.orientation = LinearLayout.VERTICAL
         p.addView(results)
 
-        // acesso para controlar outros players (Spotify etc.)
         accessBox.orientation = LinearLayout.VERTICAL
         accessBox.background = glassBg(ctx)
         accessBox.setPadding(px(12), px(10), px(12), px(10))
@@ -190,7 +184,7 @@ class MusicPage(ctx: Context) : ScrollView(ctx) {
         titleTv.text = Now.title ?: "Nada tocando"
         artistTv.text = Now.artist ?: ""
         cover.setImageBitmap(Now.art)
-        playTv.text = if (Now.playing) "\u23F8" else "\u25B6"
+        playIc.set(if (Now.playing) IC.PAUSE else IC.PLAY)
         val dur = Now.dur
         prog.progress = if (dur > 0) (Now.pos * 1000 / dur).toInt() else 0
         if (shownIdx != Player.index) {
