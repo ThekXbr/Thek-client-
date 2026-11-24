@@ -44,7 +44,9 @@ class OverlayService : Service() {
                 v.stats = s
                 Perf.stats = s
                 Perf.push(v.fps)
+                Boost.auto(this@OverlayService, s)
             }
+            Updater.auto(this@OverlayService)
             if (p.getBoolean("show_music", true)) Music.refresh(this@OverlayService)
             handler.postDelayed(this, 1000)
         }
