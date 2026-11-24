@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
@@ -30,9 +31,14 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".PickBgActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:exported="false" />
+            android:name=".TermsPickActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity-alias
+            android:name=".PickActivity"
+            android:exported="false"
+            android:targetActivity=".TermsPickActivity" />
+        <receiver android:name=".InstallReceiver" android:exported="false" />
         <service
             android:name=".OverlayService"
             android:exported="false"
