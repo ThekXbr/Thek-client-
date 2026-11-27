@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -28,6 +29,8 @@ object Player {
     var active = false
     var playing = false
     var loading = false
+    var shuffle = false
+    var repeat = 0
     var art: Bitmap? = null
     val current: Track? get() = list.getOrNull(index)
 
@@ -42,33 +45,75 @@ object Player {
         }
     }
 
-    fun search(q: String, done: (String?) -> Unit) {
+    private fun parse(arr: JSONArray): List<Track> {
+        val out = ArrayList<Track>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val aw = o.optJSONObject("artwork")
+            val us = o.optJSONObject("user")
+            out.add(
+                Track(
+                    o.getString("id"),
+                    o.optString("title", "?"),
+                    us?.optString("name", "") ?: "",
+                    aw?.optString("150x150")
+                )
+            )
+        }
+        return out
+    }
+
+    fun load(path: String, done: (List<Track>, String?) -> Unit) {
         Thread {
+            var out: List<Track> = emptyList()
             var err: String? = null
             try {
-                val url = "$API/tracks/search?query=" + Uri.encode(q) + "&limit=25&app_name=$APP"
-                val arr = JSONObject(fetch(url)).getJSONArray("data")
-                val out = ArrayList<Track>()
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val aw = o.optJSONObject("artwork")
-                    val us = o.optJSONObject("user")
-                    out.add(
-                        Track(
-                            o.getString("id"),
-                            o.optString("title", "?"),
-                            us?.optString("name", "") ?: "",
-                            aw?.optString("150x150")
-                        )
-                    )
-                }
-                list = out
-                if (out.isEmpty()) err = "Nada encontrado"
+                val sep = if (path.contains("?")) "&" else "?"
+                val arr = JSONObject(fetch("$API$path${sep}app_name=$APP")).getJSONArray("data")
+                out = parse(arr)
+                if (out.isEmpty()) err = "Nenhum resultado"
             } catch (e: Exception) {
-                err = "Sem internet ou erro na busca"
+                err = "Sem conexão ou erro ao carregar"
             }
-            ui.post { done(err) }
+            ui.post { done(out, err) }
         }.start()
+    }
+
+    fun likes(c: Context): List<Track> {
+        val s = Prefs.get(c).getString("likes", "[]") ?: "[]"
+        val out = ArrayList<Track>()
+        try {
+            val a = JSONArray(s)
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i)
+                out.add(
+                    Track(
+                        o.getString("id"), o.getString("t"), o.getString("a"),
+                        o.optString("r", "").ifEmpty { null }
+                    )
+                )
+            }
+        } catch (e: Exception) {
+        }
+        return out
+    }
+
+    fun isLiked(c: Context, id: String): Boolean = likes(c).any { it.id == id }
+
+    fun toggleLike(c: Context, t: Track) {
+        val cur = likes(c).toMutableList()
+        val ex = cur.indexOfFirst { it.id == t.id }
+        if (ex >= 0) cur.removeAt(ex) else cur.add(0, t)
+        val a = JSONArray()
+        for (x in cur) {
+            val o = JSONObject()
+            o.put("id", x.id)
+            o.put("t", x.title)
+            o.put("a", x.artist)
+            o.put("r", x.art ?: "")
+            a.put(o)
+        }
+        Prefs.get(c).edit().putString("likes", a.toString()).apply()
     }
 
     private fun loadArt(u: String?) {
@@ -85,6 +130,11 @@ object Player {
     private fun release() {
         try { mp?.release() } catch (e: Exception) {}
         mp = null
+    }
+
+    fun playFrom(l: List<Track>, i: Int) {
+        list = l
+        play(i)
     }
 
     fun play(i: Int) {
@@ -109,7 +159,15 @@ object Player {
             it.start()
             playing = true
         }
-        m.setOnCompletionListener { next() }
+        m.setOnCompletionListener {
+            if (repeat == 2) {
+                play(index)
+            } else if (repeat == 0 && !shuffle && index >= list.size - 1) {
+                playing = false
+            } else {
+                next()
+            }
+        }
         m.setOnErrorListener { _, _, _ ->
             loading = false
             playing = false
@@ -137,8 +195,19 @@ object Player {
         }
     }
 
+    fun seek(ms: Int) {
+        try { mp?.seekTo(ms) } catch (e: Exception) {}
+    }
+
     fun next() {
-        if (list.isNotEmpty()) play((index + 1) % list.size)
+        if (list.isEmpty()) return
+        var n = (index + 1) % list.size
+        if (shuffle && list.size > 1) {
+            do {
+                n = (0 until list.size).random()
+            } while (n == index)
+        }
+        play(n)
     }
 
     fun prev() {
