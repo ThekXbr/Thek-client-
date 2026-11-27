@@ -4,36 +4,69 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.widget.ScrollView
+import android.widget.TextView
 
 object Terms {
-    val BG = """Ao escolher uma imagem de fundo, voce declara que:
+    const val VERSION = 2
 
-- a imagem e sua ou voce tem permissao para usa-la;
-- ela nao viola direitos autorais, de imagem ou de terceiros e nao tem conteudo ilegal;
-- ela fica salva so neste aparelho e nao e enviada a ninguem pelo Thek Cliente;
-- voce e o unico responsavel pelo conteudo escolhido.
+    val BG = """Ao escolher uma imagem de plano de fundo, você declara que:
 
-O Android libera apenas a foto que voce escolher. O app nao ve o resto da sua galeria."""
+• a imagem é sua ou você tem permissão para usá-la;
+• ela não viola direitos autorais, de imagem ou de terceiros e não tem conteúdo ilegal;
+• ela fica salva somente neste aparelho e não é enviada a ninguém pelo Thek Cliente;
+• você é o único responsável pelo conteúdo escolhido.
 
-    val FULL = """TERMOS DE USO (modelo geral, nao e aconselhamento juridico)
+O Android libera apenas a foto que você escolher. O aplicativo não acessa o restante da sua galeria."""
 
-1. Sobre o app. O Thek Cliente e um projeto independente. Nao tem relacao com Discord, Spotify, Google, GitHub, Mojang, Microsoft, Audius ou fabricantes de celular. Marcas, nomes e logos citados pertencem aos seus donos e aparecem so para identificar os apps instalados no seu aparelho.
+    val FULL = """TERMOS DE USO E POLÍTICA DE PRIVACIDADE — versão 2
 
-2. Uso por sua conta. O app e oferecido como esta, sem garantias. O uso e por sua conta e risco. Na medida permitida pela lei, o desenvolvedor nao responde por perdas, danos ou problemas em jogos, contas ou aparelhos, nem por bloqueios que um jogo ou servico aplique. Respeite as regras de cada jogo e servico.
+1. Aceite. Ao usar o Thek Cliente você concorda com estes termos. Se não concordar, não utilize o aplicativo.
 
-3. Plano de fundo. Voce declara ter direito de usar a imagem escolhida. Ela fica so no seu aparelho.
+2. Natureza do aplicativo. O Thek Cliente é um projeto independente e não possui vínculo, parceria ou aprovação de Discord, Spotify, Google, GitHub, Mojang, Microsoft, Audius ou de fabricantes de aparelhos. Nomes e marcas citados pertencem aos seus titulares e são usados apenas para identificar aplicativos instalados no seu aparelho.
 
-4. Musica. A busca usa o catalogo aberto do Audius. As musicas pertencem aos seus artistas e tocam por streaming. Nao baixe nem redistribua.
+3. Uso e responsabilidade. O aplicativo é fornecido no estado em que se encontra, sem garantias. Você o utiliza por sua conta e risco. Na extensão permitida pela lei, o desenvolvedor não responde por perdas, danos, bloqueios de contas ou penalidades aplicadas por jogos e serviços. Respeite as regras de cada jogo e serviço.
 
-5. Navegador. Os sites abertos sao de terceiros. O app nao controla nem se responsabiliza pelo conteudo deles.
+4. Dados e privacidade. Desempenho (FPS, memória, temperatura), consumo de dados por aplicativo, tempo de uso, aplicativo em primeiro plano, curtidas e preferências são processados somente no aparelho e não são enviados ao desenvolvedor. O aplicativo usa a internet para música, navegador e verificação de atualizações.
 
-6. Discord e Spotify. O app so abre esses apps. Cada um segue os termos da propria empresa.
+5. Permissões. Sobreposição de tela (exibir o HUD), acesso de uso (identificar jogos e medir consumo), acesso às notificações (capa e controle de música), instalação de aplicativos (atualizações) e Não perturbe. Todas são opcionais e podem ser revogadas nos ajustes do Android.
 
-7. Atualizacoes. Sao baixadas de um endereco do GitHub do desenvolvedor. O Android pede sua confirmacao antes de instalar. Instale so atualizacoes que voce esperava.
+6. Música. O catálogo vem do Audius, de artistas independentes, por streaming. O conteúdo pertence aos seus titulares: não baixe nem redistribua.
 
-8. Privacidade. Dados de desempenho (FPS, memoria, temperatura) e suas preferencias ficam no aparelho. O app usa internet para musica, navegador e verificar atualizacoes. Permissoes pedidas: sobreposicao (mostrar o HUD), acesso de uso (saber qual jogo esta aberto), notificacoes (controle da musica) e instalar apps (atualizar).
+7. Navegador. Os sites exibidos são de terceiros; o aplicativo não controla seu conteúdo.
 
-9. Mudancas. Estes termos podem mudar em novas versoes."""
+8. Plano de fundo. Você declara ter direito de usar a imagem escolhida. Ela fica apenas no aparelho.
+
+9. Discord e Spotify. O aplicativo apenas abre esses serviços, que seguem seus próprios termos.
+
+10. Atualizações. São baixadas do repositório do desenvolvedor no GitHub e o Android solicita sua confirmação. Instale apenas versões que você esperava.
+
+11. Alterações. Estes termos podem mudar em novas versões; o aceite será solicitado novamente quando isso ocorrer."""
+
+    // exibido na primeira abertura: so continua se o usuario aceitar
+    fun gate(a: Activity, onOk: () -> Unit) {
+        val p = Prefs.get(a)
+        if (p.getInt("terms_ok", 0) >= VERSION) {
+            onOk()
+            return
+        }
+        val sv = ScrollView(a)
+        val tv = TextView(a)
+        tv.text = FULL
+        tv.textSize = 12f
+        tv.setPadding(48, 24, 48, 24)
+        sv.addView(tv)
+        AlertDialog.Builder(a)
+            .setTitle("Termos de Uso e Privacidade")
+            .setView(sv)
+            .setCancelable(false)
+            .setPositiveButton("Aceito") { _, _ ->
+                p.edit().putInt("terms_ok", VERSION).apply()
+                onOk()
+            }
+            .setNegativeButton("Não aceito") { _, _ -> a.finish() }
+            .show()
+    }
 }
 
 class TermsPickActivity : Activity() {
