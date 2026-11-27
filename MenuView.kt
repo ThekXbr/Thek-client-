@@ -26,12 +26,12 @@ fun hudControls(ctx: Context, root: LinearLayout) {
     val items = listOf(
         "FPS" to "show_fps", "RAM" to "show_ram", "CPU" to "show_cpu",
         "GPU" to "show_gpu", "Nome do jogo" to "show_game",
-        "Player de musica" to "show_music"
+        "Player de música" to "show_music"
     )
     for ((t, k) in items) {
         root.addView(Switch(ctx).apply {
             text = t
-            setTextColor(Color.WHITE)
+            setTextColor(Th.TEXT)
             isChecked = p.getBoolean(k, true)
             setOnCheckedChangeListener { _, on -> p.edit().putBoolean(k, on).apply() }
         })
@@ -39,7 +39,7 @@ fun hudControls(ctx: Context, root: LinearLayout) {
     fun slider(title: String, key: String, lo: Int, hi: Int, def: Int) {
         val cur = p.getInt(key, def)
         val lbl = TextView(ctx)
-        lbl.setTextColor(Color.WHITE)
+        lbl.setTextColor(Th.TEXT)
         lbl.text = "$title: $cur%"
         lbl.setPadding(0, 24, 0, 0)
         root.addView(lbl)
@@ -73,6 +73,30 @@ fun hudControls(ctx: Context, root: LinearLayout) {
     clr.isAllCaps = false
     clr.setOnClickListener { Bg.clear(ctx) }
     root.addView(clr)
+
+    // cursor do mouse
+    val dv = Cursors.devices()
+    val ct = TextView(ctx)
+    ct.setTextColor(Th.TEXT)
+    ct.setPadding(0, 32, 0, 0)
+    ct.text = "Mouse: " + (if (dv.first) "conectado" else "não detectado") +
+        "   ·   Teclado: " + (if (dv.second) "conectado" else "não detectado")
+    root.addView(ct)
+    val cb = Button(ctx)
+    cb.isAllCaps = false
+    cb.text = "Estilo do cursor: " + Cursors.names[Cursors.index(ctx)]
+    cb.setOnClickListener {
+        val n = (Cursors.index(ctx) + 1) % Cursors.names.size
+        p.edit().putInt("cursor", n).apply()
+        cb.text = "Estilo do cursor: " + Cursors.names[n]
+        Cursors.apply(cb.rootView)
+    }
+    root.addView(cb)
+    val cn = TextView(ctx)
+    cn.setTextColor(Th.DIM)
+    cn.textSize = 11f
+    cn.text = "O estilo vale dentro das telas do Thek Cliente. O Android não permite trocar o cursor do sistema inteiro."
+    root.addView(cn)
 }
 
 class MenuView(base: Context, private val onClose: () -> Unit) :
@@ -82,11 +106,9 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private lateinit var tabs: LinearLayout
     private lateinit var turbo: TurboPage
     private lateinit var music: MusicPage
+    private lateinit var ins: InsightsPage
     private val bgIv = ImageView(context)
-    private val panel = GradientDrawable(
-        GradientDrawable.Orientation.TOP_BOTTOM,
-        intArrayOf(0xCC1B2236.toInt(), 0xCC0E1320.toInt())
-    )
+    private val panel = GradientDrawable()
     private var web: WebView? = null
     private val d = resources.displayMetrics.density
     private val wm = base.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -100,14 +122,15 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private fun px(v: Int) = (v * d).toInt()
 
     init {
-        panel.cornerRadius = 24 * d
-        panel.setStroke(px(1), 0x55FFFFFF)
+        panel.setColor(0xF2171A21.toInt())
+        panel.cornerRadius = 16 * d
+        panel.setStroke(px(1), Th.LINE)
         background = panel
 
         bgIv.scaleType = ImageView.ScaleType.CENTER_CROP
         bgIv.outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(v: View, o: Outline) {
-                o.setRoundRect(0, 0, v.width, v.height, 24 * d)
+                o.setRoundRect(0, 0, v.width, v.height, 16 * d)
             }
         }
         bgIv.clipToOutline = true
@@ -120,9 +143,9 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         addView(col, FrameLayout.LayoutParams(-1, -1))
 
         val handle = TextView(context)
-        handle.text = "\u2630  arraste aqui"
-        handle.textSize = 12f
-        handle.setTextColor(0xFF7A849E.toInt())
+        handle.text = "Arraste para mover"
+        handle.textSize = 11f
+        handle.setTextColor(Th.DIM)
         handle.gravity = Gravity.CENTER
         handle.setPadding(0, px(8), 0, px(8))
         handle.setOnTouchListener { _, e ->
@@ -150,19 +173,26 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
 
         turbo = TurboPage(context)
         music = MusicPage(context)
+        ins = InsightsPage(context)
         content.addView(turbo, FrameLayout.LayoutParams(-1, -1))
         content.addView(webPage(), FrameLayout.LayoutParams(-1, -1))
         content.addView(music, FrameLayout.LayoutParams(-1, -1))
+        content.addView(ins, FrameLayout.LayoutParams(-1, -1))
         content.addView(hudPage(), FrameLayout.LayoutParams(-1, -1))
 
-        val kinds = listOf(IC.ROCKET, IC.SEARCH, IC.NOTE, IC.GEAR)
-        kinds.forEachIndexed { i, k ->
-            val ic = Ico(context, k, 0xFF9AA4BF.toInt())
-            ic.setPadding(0, px(8), 0, px(8))
-            ic.setOnClickListener { show(i) }
-            tabs.addView(ic, LinearLayout.LayoutParams(0, -2, 1f))
+        val icons = listOf<View>(
+            Ico(context, IC.ROCKET, Th.DIM),
+            Ico(context, IC.SEARCH, Th.DIM),
+            Ico(context, IC.NOTE, Th.DIM),
+            Ico2(context, Ico2.CHART, Th.DIM),
+            Ico(context, IC.GEAR, Th.DIM)
+        )
+        icons.forEachIndexed { i, v ->
+            v.setPadding(0, px(8), 0, px(8))
+            v.setOnClickListener { show(i) }
+            tabs.addView(v, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        val x = Ico(context, IC.CLOSE, Color.WHITE)
+        val x = Ico(context, IC.CLOSE, Th.TEXT)
         x.setPadding(px(12), px(8), px(12), px(8))
         x.setOnClickListener { onClose() }
         tabs.addView(x)
@@ -171,7 +201,7 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         val grip = object : View(context) {
             private val gp = Paint(Paint.ANTI_ALIAS_FLAG)
             override fun onDraw(c: Canvas) {
-                gp.color = 0xCCFFFFFF.toInt()
+                gp.color = Th.DIM
                 gp.strokeWidth = 2 * d
                 gp.strokeCap = Paint.Cap.ROUND
                 val w = width.toFloat()
@@ -204,8 +234,14 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private fun show(i: Int) {
         for (n in 0 until content.childCount) {
             content.getChildAt(n).visibility = if (n == i) View.VISIBLE else View.GONE
-            val ic = tabs.getChildAt(n) as Ico
-            ic.set(ic.kind, if (n == i) 0xFF6EE7F9.toInt() else 0xFF9AA4BF.toInt())
+            val col = if (n == i) Th.ACC else Th.DIM
+            val v = tabs.getChildAt(n)
+            if (v is Ico) {
+                v.set(v.kind, col)
+            } else if (v is Ico2) {
+                v.col = col
+                v.invalidate()
+            }
         }
     }
 
@@ -221,11 +257,11 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
     private fun webPage(): View {
         val p = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         val et = EditText(context)
-        et.hint = "https://  ou  site.com  ou pesquisar"
+        et.hint = "Endereço ou pesquisa"
         et.setSingleLine()
         et.textSize = 14f
-        et.setTextColor(Color.WHITE)
-        et.setHintTextColor(0xFF7A849E.toInt())
+        et.setTextColor(Th.TEXT)
+        et.setHintTextColor(Th.DIM)
         et.imeOptions = EditorInfo.IME_ACTION_GO
         val go = Button(context)
         go.text = "Ir"
@@ -270,10 +306,12 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
             Music.refresh(context)
             turbo.update()
             music.update()
+            ins.update()
             val op = Bg.opacity(context)
             bgIv.setImageBitmap(Bg.bitmap(context))
             bgIv.alpha = op
             panel.alpha = (120 + 135 * op).toInt()
+            Cursors.apply(this@MenuView)
             this@MenuView.postDelayed(this, 1000)
         }
     }
@@ -282,9 +320,9 @@ class MenuView(base: Context, private val onClose: () -> Unit) :
         super.onAttachedToWindow()
         post(upd)
         alpha = 0f
-        scaleX = 0.9f
-        scaleY = 0.9f
-        animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320).start()
+        scaleX = 0.94f
+        scaleY = 0.94f
+        animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).start()
     }
 
     override fun onDetachedFromWindow() {
