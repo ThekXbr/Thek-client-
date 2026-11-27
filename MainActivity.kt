@@ -3,14 +3,12 @@ package com.thek.cliente
 import android.Manifest
 import android.animation.ObjectAnimator
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.Shader
-import android.graphics.Typeface
+import android.content.res.ColorStateList
+import android.graphics.*
+import android.hardware.input.InputManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
@@ -26,49 +24,20 @@ import android.widget.*
 import kotlin.math.cos
 import kotlin.math.sin
 
-class AnimBg(c: android.content.Context) : View(c) {
+class AnimBg(c: Context) : View(c) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val rnd = java.util.Random(7)
-    private val px = FloatArray(28) { rnd.nextFloat() }
-    private val py = FloatArray(28) { rnd.nextFloat() }
-    private val ps = FloatArray(28) { 0.0008f + rnd.nextFloat() * 0.0016f }
 
     override fun onDraw(c: Canvas) {
         val t = SystemClock.uptimeMillis() / 1000f
         val w = width.toFloat()
         val h = height.toFloat()
-        val a = t * 0.25f
-        val x = w / 2 + cos(a) * w / 2
-        val y = h / 2 + sin(a) * h / 2
-        p.shader = LinearGradient(
-            w - x, h - y, x, y,
-            0xFF0E1320.toInt(), 0xFF2A1F5C.toInt(), Shader.TileMode.CLAMP
-        )
+        p.shader = LinearGradient(0f, 0f, 0f, h, Th.BG, 0xFF151A26.toInt(), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w, h, p)
+        val cx = w * (0.5f + 0.35f * sin(t * 0.15f))
+        val cy = h * (0.3f + 0.12f * cos(t * 0.11f))
+        p.shader = RadialGradient(cx, cy, w * 0.9f, 0x224C8DFF, 0x004C8DFF, Shader.TileMode.CLAMP)
         c.drawRect(0f, 0f, w, h, p)
         p.shader = null
-        for (i in px.indices) {
-            py[i] -= ps[i]
-            if (py[i] < 0f) {
-                py[i] = 1f
-                px[i] = rnd.nextFloat()
-            }
-            p.color = 0x556EE7F9
-            c.drawCircle(px[i] * w + sin(t + i) * 12f, py[i] * h, 3f + (i % 4) * 2f, p)
-        }
-        for (k in 0..2) {
-            val path = Path()
-            path.moveTo(0f, h)
-            var xx = 0f
-            while (xx <= w + 10f) {
-                val ang = xx / w * 6.28f * (1 + k) + t * (1f + k * 0.5f)
-                path.lineTo(xx, h * (0.9f - k * 0.04f) + sin(ang) * 18f)
-                xx += 10f
-            }
-            path.lineTo(w, h)
-            path.close()
-            p.color = (0x30 shl 24) or (0x6EE7F9 - k * 0x203040)
-            c.drawPath(path, p)
-        }
         postInvalidateOnAnimation()
     }
 }
@@ -81,10 +50,13 @@ class MainActivity : Activity() {
     private lateinit var pagesBox: FrameLayout
     private lateinit var navBox: LinearLayout
     private lateinit var turbo: TurboPage
+    private lateinit var music: MusicPage
+    private lateinit var ins: InsightsPage
     private lateinit var tut: TutorialPage
     private lateinit var hudSw: Switch
     private var suppress = false
     private var leaving = false
+    private var asked = false
     private var lastToggle = 0L
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -93,11 +65,45 @@ class MainActivity : Activity() {
         try { tone.startTone(ToneGenerator.TONE_PROP_BEEP, 80) } catch (e: Exception) {}
     }
 
+    private val inListener = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) { checkInput() }
+        override fun onInputDeviceRemoved(id: Int) { checkInput() }
+        override fun onInputDeviceChanged(id: Int) {}
+    }
+
+    private fun checkInput() {
+        val dv = Cursors.devices()
+        if (dv.first && dv.second) {
+            if (!asked) {
+                asked = true
+                pickCursor()
+            }
+        } else {
+            asked = false
+        }
+    }
+
+    private fun pickCursor() {
+        AlertDialog.Builder(this)
+            .setTitle("Teclado e mouse detectados")
+            .setSingleChoiceItems(Cursors.names.toTypedArray(), Cursors.index(this)) { dlg, which ->
+                Prefs.get(this).edit().putInt("cursor", which).apply()
+                Cursors.apply(root)
+                dlg.dismiss()
+            }
+            .setNegativeButton("Agora não", null)
+            .show()
+    }
+
     private val tick = object : Runnable {
         override fun run() {
             if (!Hud.on) Perf.stats = Sampler.sample(this@MainActivity, 0f, 60f, true)
+            Music.refresh(this@MainActivity)
             turbo.update()
+            music.update()
+            ins.update()
             tut.update()
+            Cursors.apply(root)
             val settled = System.currentTimeMillis() - lastToggle > 2500
             if (settled && hudSw.isChecked != Hud.on) {
                 suppress = true
@@ -114,11 +120,11 @@ class MainActivity : Activity() {
             if (Settings.canDrawOverlays(this)) {
                 startForegroundService(Intent(this, OverlayService::class.java))
             } else {
-                Toast.makeText(this, "Permita a sobreposicao no Tutorial", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permita a sobreposição no Tutorial", Toast.LENGTH_SHORT).show()
                 suppress = true
                 hudSw.isChecked = false
                 suppress = false
-                showPage(2)
+                showPage(4)
             }
         } else {
             startService(Intent(this, OverlayService::class.java).setAction("STOP"))
@@ -129,9 +135,14 @@ class MainActivity : Activity() {
         for (n in 0 until pagesBox.childCount) {
             pagesBox.getChildAt(n).visibility = if (n == i) View.VISIBLE else View.GONE
             val cell = navBox.getChildAt(n) as LinearLayout
-            val ic = cell.getChildAt(0) as Ico
-            val col = if (n == i) 0xFF6EE7F9.toInt() else 0xFF7A849E.toInt()
-            ic.set(ic.kind, col)
+            val col = if (n == i) Th.ACC else Th.DIM
+            val v = cell.getChildAt(0)
+            if (v is Ico) {
+                v.set(v.kind, col)
+            } else if (v is Ico2) {
+                v.col = col
+                v.invalidate()
+            }
             (cell.getChildAt(1) as TextView).setTextColor(col)
         }
     }
@@ -140,18 +151,19 @@ class MainActivity : Activity() {
         ui = LinearLayout(this)
         ui.orientation = LinearLayout.VERTICAL
         ui.visibility = View.INVISIBLE
-        ui.setPadding(dp(14), dp(40), dp(14), dp(10))
+        ui.setPadding(dp(16), dp(44), dp(16), dp(12))
 
         val top = LinearLayout(this)
         top.gravity = Gravity.CENTER_VERTICAL
         val tt = TextView(this)
-        tt.text = "Thek Cliente"
-        tt.textSize = 13f
-        tt.setTextColor(0xFF9AA4BF.toInt())
+        tt.text = "Thek Turbo"
+        tt.textSize = 18f
+        tt.typeface = Typeface.DEFAULT_BOLD
+        tt.setTextColor(Th.TEXT)
         top.addView(tt, LinearLayout.LayoutParams(0, -2, 1f))
         hudSw = Switch(this)
         hudSw.text = "HUD  "
-        hudSw.setTextColor(Color.WHITE)
+        hudSw.setTextColor(Th.TEXT)
         hudSw.setOnCheckedChangeListener { _, on ->
             beep()
             if (!suppress) toggleHud(on)
@@ -161,37 +173,46 @@ class MainActivity : Activity() {
 
         pagesBox = FrameLayout(this)
         turbo = TurboPage(this)
-        val p0 = ScrollView(this)
-        p0.addView(turbo)
+        music = MusicPage(this)
+        ins = InsightsPage(this)
+        tut = TutorialPage(this)
         val set = LinearLayout(this)
         set.orientation = LinearLayout.VERTICAL
         set.setPadding(dp(8), dp(12), dp(8), dp(8))
         val st = TextView(this)
-        st.text = "Ajustes do HUD"
+        st.text = "Ajustes"
         st.textSize = 20f
-        st.setTextColor(0xFF6EE7F9.toInt())
+        st.typeface = Typeface.DEFAULT_BOLD
+        st.setTextColor(Th.TEXT)
         set.addView(st)
         hudControls(this, set)
-        val p1 = ScrollView(this)
-        p1.addView(set)
-        tut = TutorialPage(this)
-        pagesBox.addView(p0, FrameLayout.LayoutParams(-1, -1))
-        pagesBox.addView(p1, FrameLayout.LayoutParams(-1, -1))
+        val sv = ScrollView(this)
+        sv.addView(set)
+        pagesBox.addView(turbo, FrameLayout.LayoutParams(-1, -1))
+        pagesBox.addView(music, FrameLayout.LayoutParams(-1, -1))
+        pagesBox.addView(ins, FrameLayout.LayoutParams(-1, -1))
+        pagesBox.addView(sv, FrameLayout.LayoutParams(-1, -1))
         pagesBox.addView(tut, FrameLayout.LayoutParams(-1, -1))
         ui.addView(pagesBox, LinearLayout.LayoutParams(-1, 0, 1f))
 
         navBox = LinearLayout(this)
-        navBox.background = glassBg(this, 20)
-        val items = listOf(IC.ROCKET to "Turbo", IC.GEAR to "Ajustes", IC.BOOK to "Tutorial")
+        navBox.background = Th.card(this, 14)
+        val items = listOf<Pair<View, String>>(
+            Pair(Ico(this, IC.ROCKET, Th.DIM), "Turbo"),
+            Pair(Ico(this, IC.NOTE, Th.DIM), "Música"),
+            Pair(Ico2(this, Ico2.CHART, Th.DIM), "Consumo"),
+            Pair(Ico(this, IC.GEAR, Th.DIM), "Ajustes"),
+            Pair(Ico(this, IC.BOOK, Th.DIM), "Tutorial")
+        )
         items.forEachIndexed { i, pr ->
             val cell = LinearLayout(this)
             cell.orientation = LinearLayout.VERTICAL
             cell.gravity = Gravity.CENTER
             cell.setPadding(0, dp(8), 0, dp(8))
-            cell.addView(Ico(this, pr.first), LinearLayout.LayoutParams(dp(26), dp(26)))
+            cell.addView(pr.first, LinearLayout.LayoutParams(dp(24), dp(24)))
             val tx = TextView(this)
             tx.text = pr.second
-            tx.textSize = 11f
+            tx.textSize = 10f
             tx.gravity = Gravity.CENTER
             cell.addView(tx)
             cell.setOnClickListener {
@@ -203,59 +224,60 @@ class MainActivity : Activity() {
         val nl = LinearLayout.LayoutParams(-1, -2)
         nl.setMargins(0, dp(8), 0, 0)
         ui.addView(navBox, nl)
-        showPage(if (Settings.canDrawOverlays(this)) 0 else 2)
+        showPage(if (Settings.canDrawOverlays(this)) 0 else 4)
     }
 
     private fun buildSplash() {
         val sp = LinearLayout(this)
         sp.orientation = LinearLayout.VERTICAL
         sp.gravity = Gravity.CENTER
-        val rk = Ico(this, IC.ROCKET, 0xFF6EE7F9.toInt())
+        val rk = Ico(this, IC.ROCKET, Th.ACC)
         rk.alpha = 0f
-        rk.scaleX = 0.5f
-        rk.scaleY = 0.5f
-        rk.translationY = dp(60).toFloat()
-        sp.addView(rk, LinearLayout.LayoutParams(dp(84), dp(84)))
+        rk.translationY = dp(40).toFloat()
+        sp.addView(rk, LinearLayout.LayoutParams(dp(64), dp(64)))
         val logo = TextView(this)
-        logo.text = "THEK TURBO"
-        logo.textSize = 34f
+        logo.text = "Thek Turbo"
+        logo.textSize = 28f
         logo.gravity = Gravity.CENTER
-        logo.setTextColor(Color.WHITE)
+        logo.setTextColor(Th.TEXT)
         logo.typeface = Typeface.DEFAULT_BOLD
-        logo.letterSpacing = 0.12f
+        logo.setPadding(0, dp(12), 0, 0)
         sp.addView(logo)
         val status = TextView(this)
-        status.text = "Iniciando..."
-        status.setTextColor(0xFF6EE7F9.toInt())
+        status.text = "Iniciando"
+        status.setTextColor(Th.DIM)
         status.gravity = Gravity.CENTER
-        status.setPadding(0, dp(16), 0, dp(8))
+        status.setPadding(0, dp(12), 0, dp(10))
         sp.addView(status)
         val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
         bar.max = 100
-        sp.addView(bar, LinearLayout.LayoutParams(dp(220), dp(6)))
+        bar.progressTintList = ColorStateList.valueOf(Th.ACC)
+        bar.progressBackgroundTintList = ColorStateList.valueOf(Th.LINE)
+        sp.addView(bar, LinearLayout.LayoutParams(dp(200), dp(4)))
         root.addView(sp, FrameLayout.LayoutParams(-1, -1))
 
-        rk.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(800)
-            .setInterpolator(OvershootInterpolator(1.6f)).start()
-        ObjectAnimator.ofInt(bar, "progress", 0, 100).setDuration(2000).start()
-        val msgs = listOf("Iniciando...", "Carregando modulos...", "Verificando permissoes...", "Pronto!")
+        rk.animate().alpha(1f).translationY(0f).setDuration(600)
+            .setInterpolator(OvershootInterpolator(1.2f)).start()
+        ObjectAnimator.ofInt(bar, "progress", 0, 100).setDuration(1500).start()
+        val msgs = listOf("Iniciando", "Carregando módulos", "Verificando permissões", "Pronto")
         msgs.forEachIndexed { i, m ->
             h.postDelayed({
                 status.text = m
-                beep()
-            }, 500L * i)
+                if (i == 3) beep()
+            }, 400L * i)
         }
         h.postDelayed({
-            rk.animate().translationY(-dp(260).toFloat()).alpha(0f).setDuration(600).start()
-            sp.animate().alpha(0f).setDuration(600).withEndAction { sp.visibility = View.GONE }.start()
+            rk.animate().translationY(-dp(200).toFloat()).alpha(0f).setDuration(500).start()
+            sp.animate().alpha(0f).setDuration(500).withEndAction { sp.visibility = View.GONE }.start()
             ui.visibility = View.VISIBLE
             for (i in 0 until ui.childCount) {
                 val v = ui.getChildAt(i)
                 v.alpha = 0f
-                v.translationY = dp(40).toFloat()
-                v.animate().alpha(1f).translationY(0f).setStartDelay(i * 90L).setDuration(450).start()
+                v.translationY = dp(30).toFloat()
+                v.animate().alpha(1f).translationY(0f).setStartDelay(i * 80L).setDuration(400).start()
             }
-        }, 2100)
+            checkInput()
+        }, 1700)
     }
 
     override fun onCreate(b: Bundle?) {
@@ -268,27 +290,29 @@ class MainActivity : Activity() {
         root.addView(AnimBg(this))
         buildUi()
         root.addView(ui, FrameLayout.LayoutParams(-1, -1))
-        buildSplash()
         setContentView(root)
+        val im = getSystemService(Context.INPUT_SERVICE) as InputManager
+        im.registerInputDeviceListener(inListener, h)
         h.post(tick)
+        // os termos precisam ser aceitos antes de usar o app
+        Terms.gate(this) { buildSplash() }
     }
 
-    // despedida ao sair do app
     override fun onBackPressed() {
         if (leaving) return
         leaving = true
         beep()
         val bye = ByeView(this)
         bye.alpha = 0f
-        bye.scaleX = 0.8f
-        bye.scaleY = 0.8f
+        bye.scaleX = 0.9f
+        bye.scaleY = 0.9f
         root.addView(bye, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
-        bye.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).start()
+        bye.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(300).start()
         ui.animate().alpha(0f).setDuration(500).start()
         h.postDelayed({
             finish()
             overridePendingTransition(0, android.R.anim.fade_out)
-        }, 1300)
+        }, 1200)
     }
 
     override fun onResume() {
@@ -298,6 +322,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         h.removeCallbacksAndMessages(null)
+        val im = getSystemService(Context.INPUT_SERVICE) as InputManager
+        im.unregisterInputDeviceListener(inListener)
         tone.release()
         super.onDestroy()
     }
