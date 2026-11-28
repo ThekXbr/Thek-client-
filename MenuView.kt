@@ -60,7 +60,7 @@ class MenuView(context: Context) : ScrollView(context) {
         container.addView(themeHeader)
 
         val themeDesc = TextView(context).apply {
-            text = "Modo atual: ${Th.styleName}"
+            text = "Modo padrão ativo"
             setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, 20)
         }
