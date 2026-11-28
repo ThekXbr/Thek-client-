@@ -1,5 +1,6 @@
 package com.thek.cliente
 
+import android.app.Activity
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
@@ -14,9 +15,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
     private lateinit var rootLayout: FrameLayout
     private lateinit var navBar: LinearLayout
     private var activePage: Int = -1
@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         val widthPerTab = resources.displayMetrics.widthPixels / tabs.size
 
         tabs.forEachIndexed { index, name ->
-            val tab = object : android.view.View(context) {
+            val tab = object : android.view.View(this) {
                 override fun onDraw(canvas: Canvas) {
                     super.onDraw(canvas)
                     val size = 40f
