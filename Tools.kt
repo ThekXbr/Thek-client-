@@ -128,6 +128,7 @@ class Ico2(ctx: Context, var kind: Int, var col: Int = Color.WHITE) : View(ctx) 
         const val CHART = 1
         const val DOWN = 2
         const val BOLT = 3
+        const val SPARK = 4
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -168,19 +169,3 @@ class Ico2(ctx: Context, var kind: Int, var col: Int = Color.WHITE) : View(ctx) 
                 c.drawLine(18f, 11f, 12f, 17f, p)
                 c.drawLine(5f, 21f, 19f, 21f, p)
             }
-            else -> {
-                p.style = Paint.Style.FILL
-                val b = Path()
-                b.moveTo(13f, 2f)
-                b.lineTo(5f, 13f)
-                b.lineTo(11f, 13f)
-                b.lineTo(10f, 22f)
-                b.lineTo(19f, 10f)
-                b.lineTo(13f, 10f)
-                b.close()
-                c.drawPath(b, p)
-            }
-        }
-        c.restore()
-    }
-}
