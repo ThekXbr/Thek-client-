@@ -1,337 +1,120 @@
 package com.thek.cliente
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.Paint
-import android.graphics.drawable.GradientDrawable
-import android.net.Uri
-import android.view.ContextThemeWrapper
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
-import android.view.ViewOutlineProvider
-import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.*
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 
-// Controles do HUD (usados no app e no menu do overlay)
-fun hudControls(ctx: Context, root: LinearLayout) {
-    val p = Prefs.get(ctx)
-    val items = listOf(
-        "FPS" to "show_fps", "RAM" to "show_ram", "CPU" to "show_cpu",
-        "GPU" to "show_gpu", "Nome do jogo" to "show_game",
-        "Player de música" to "show_music"
-    )
-    for ((t, k) in items) {
-        root.addView(Switch(ctx).apply {
-            text = t
-            setTextColor(Th.TEXT)
-            isChecked = p.getBoolean(k, true)
-            setOnCheckedChangeListener { _, on -> p.edit().putBoolean(k, on).apply() }
-        })
-    }
-    fun slider(title: String, key: String, lo: Int, hi: Int, def: Int) {
-        val cur = p.getInt(key, def)
-        val lbl = TextView(ctx)
-        lbl.setTextColor(Th.TEXT)
-        lbl.text = "$title: $cur%"
-        lbl.setPadding(0, 24, 0, 0)
-        root.addView(lbl)
-        val sb = SeekBar(ctx)
-        sb.max = hi - lo
-        sb.progress = cur - lo
-        sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar?, v: Int, user: Boolean) {
-                lbl.text = "$title: ${v + lo}%"
-                p.edit().putInt(key, v + lo).apply()
-            }
-            override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
-        })
-        root.addView(sb)
-    }
-    slider("Tamanho", "scale", 60, 200, 100)
-    slider("Opacidade", "opacity", 20, 100, 60)
-
-    val pick = Button(ctx)
-    pick.text = "Escolher plano de fundo"
-    pick.isAllCaps = false
-    pick.setOnClickListener {
-        ctx.startActivity(
-            Intent(ctx, PickActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+class MenuView(context: Context) : ScrollView(context) {
+    private val container = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
         )
+        setPadding(30, 30, 30, 30)
     }
-    root.addView(pick)
-    val clr = Button(ctx)
-    clr.text = "Remover fundo"
-    clr.isAllCaps = false
-    clr.setOnClickListener { Bg.clear(ctx) }
-    root.addView(clr)
-
-    // cursor do mouse
-    val dv = Cursors.devices()
-    val ct = TextView(ctx)
-    ct.setTextColor(Th.TEXT)
-    ct.setPadding(0, 32, 0, 0)
-    ct.text = "Mouse: " + (if (dv.first) "conectado" else "não detectado") +
-        "   ·   Teclado: " + (if (dv.second) "conectado" else "não detectado")
-    root.addView(ct)
-    val cb = Button(ctx)
-    cb.isAllCaps = false
-    cb.text = "Estilo do cursor: " + Cursors.names[Cursors.index(ctx)]
-    cb.setOnClickListener {
-        val n = (Cursors.index(ctx) + 1) % Cursors.names.size
-        p.edit().putInt("cursor", n).apply()
-        cb.text = "Estilo do cursor: " + Cursors.names[n]
-        Cursors.apply(cb.rootView)
-    }
-    root.addView(cb)
-    val cn = TextView(ctx)
-    cn.setTextColor(Th.DIM)
-    cn.textSize = 11f
-    cn.text = "O estilo vale dentro das telas do Thek Cliente. O Android não permite trocar o cursor do sistema inteiro."
-    root.addView(cn)
-}
-
-class MenuView(base: Context, private val onClose: () -> Unit) :
-    FrameLayout(ContextThemeWrapper(base, android.R.style.Theme_Material_NoActionBar)) {
-
-    private lateinit var content: FrameLayout
-    private lateinit var tabs: LinearLayout
-    private lateinit var turbo: TurboPage
-    private lateinit var music: MusicPage
-    private lateinit var ins: InsightsPage
-    private val bgIv = ImageView(context)
-    private val panel = GradientDrawable()
-    private var web: WebView? = null
-    private val d = resources.displayMetrics.density
-    private val wm = base.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private var sx = 0f
-    private var sy = 0f
-    private var ox = 0
-    private var oy = 0
-    private var ow = 0
-    private var oh = 0
-
-    private fun px(v: Int) = (v * d).toInt()
 
     init {
-        panel.setColor(0xF2171A21.toInt())
-        panel.cornerRadius = 16 * d
-        panel.setStroke(px(1), Th.LINE)
-        background = panel
+        addView(container)
+        render()
+    }
 
-        bgIv.scaleType = ImageView.ScaleType.CENTER_CROP
-        bgIv.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(v: View, o: Outline) {
-                o.setRoundRect(0, 0, v.width, v.height, 16 * d)
+    private fun render() {
+        container.removeAllViews()
+
+        val title = TextView(context).apply {
+            text = "Menu de Ajustes"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, 20)
+        }
+        container.addView(title)
+
+        val controlsHeader = TextView(context).apply {
+            text = "Controles do HUD"
+            textSize = 18f
+            setTextColor(Th.accent)
+            setPadding(0, 20, 0, 10)
+        }
+        container.addView(controlsHeader)
+
+        val boostItem = createControlItem("Acelerar Sistema") {
+            Tools.Boost(context)
+        }
+        container.addView(boostItem)
+
+        iconTestRow()
+
+        val themeHeader = TextView(context).apply {
+            text = "Estilo Visual"
+            textSize = 18f
+            setTextColor(Th.accent)
+            setPadding(0, 30, 0, 10)
+        }
+        container.addView(themeHeader)
+
+        val themeDesc = TextView(context).apply {
+            text = "Modo atual: ${Th.styleName}"
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, 20)
+        }
+        container.addView(themeDesc)
+    }
+
+    private fun createControlItem(label: String, action: () -> Unit): View {
+        return TextView(context).apply {
+            text = label
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#292929"))
+            setPadding(30, 30, 30, 30)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 10, 0, 10)
             }
+            setOnClickListener { action() }
         }
-        bgIv.clipToOutline = true
-        addView(bgIv, FrameLayout.LayoutParams(-1, -1))
+    }
 
-        val col = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(px(12), px(6), px(12), px(12))
+    private fun iconTestRow() {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 20, 0, 20)
         }
-        addView(col, FrameLayout.LayoutParams(-1, -1))
 
-        val handle = TextView(context)
-        handle.text = "Arraste para mover"
-        handle.textSize = 11f
-        handle.setTextColor(Th.DIM)
-        handle.gravity = Gravity.CENTER
-        handle.setPadding(0, px(8), 0, px(8))
-        handle.setOnTouchListener { _, e ->
-            val lp = layoutParams as? WindowManager.LayoutParams
-            if (lp != null) {
-                if (e.action == MotionEvent.ACTION_DOWN) {
-                    sx = e.rawX
-                    sy = e.rawY
-                    ox = lp.x
-                    oy = lp.y
-                } else if (e.action == MotionEvent.ACTION_MOVE) {
-                    lp.x = ox + (e.rawX - sx).toInt()
-                    lp.y = oy + (e.rawY - sy).toInt()
-                    wm.updateViewLayout(this@MenuView, lp)
+        val icons = listOf(0, 1, 2, 3, 4)
+        val size = 60f
+
+        icons.forEach { iconType ->
+            val iconView = object : View(context) {
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val x = 0f
+                    val y = 0f
+                    when(iconType) {
+                        0 -> Ico2.DISC(canvas, x, y, size, Th.accent)
+                        1 -> Ico2.CHART(canvas, x, y, size, Th.accent)
+                        2 -> Ico2.DOWN(canvas, x, y, size, Th.accent)
+                        3 -> Ico2.BOLT(canvas, x, y, size, Th.accent)
+                        4 -> Ico2.SPARK(canvas, x, y, size, Th.accent)
+                    }
+                }
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(80, 80).apply {
+                    setMargins(10, 0, 10, 0)
                 }
             }
-            true
+            row.addView(iconView)
         }
-        col.addView(handle, LinearLayout.LayoutParams(-1, -2))
-
-        tabs = LinearLayout(context)
-        col.addView(tabs, LinearLayout.LayoutParams(-1, -2))
-        content = FrameLayout(context)
-        col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        turbo = TurboPage(context)
-        music = MusicPage(context)
-        ins = InsightsPage(context)
-        content.addView(turbo, FrameLayout.LayoutParams(-1, -1))
-        content.addView(webPage(), FrameLayout.LayoutParams(-1, -1))
-        content.addView(music, FrameLayout.LayoutParams(-1, -1))
-        content.addView(ins, FrameLayout.LayoutParams(-1, -1))
-        content.addView(hudPage(), FrameLayout.LayoutParams(-1, -1))
-
-        val icons = listOf<View>(
-            Ico(context, IC.ROCKET, Th.DIM),
-            Ico(context, IC.SEARCH, Th.DIM),
-            Ico(context, IC.NOTE, Th.DIM),
-            Ico2(context, Ico2.CHART, Th.DIM),
-            Ico(context, IC.GEAR, Th.DIM)
-        )
-        icons.forEachIndexed { i, v ->
-            v.setPadding(0, px(8), 0, px(8))
-            v.setOnClickListener { show(i) }
-            tabs.addView(v, LinearLayout.LayoutParams(0, -2, 1f))
-        }
-        val x = Ico(context, IC.CLOSE, Th.TEXT)
-        x.setPadding(px(12), px(8), px(12), px(8))
-        x.setOnClickListener { onClose() }
-        tabs.addView(x)
-
-        // puxador para redimensionar o menu
-        val grip = object : View(context) {
-            private val gp = Paint(Paint.ANTI_ALIAS_FLAG)
-            override fun onDraw(c: Canvas) {
-                gp.color = Th.DIM
-                gp.strokeWidth = 2 * d
-                gp.strokeCap = Paint.Cap.ROUND
-                val w = width.toFloat()
-                val h = height.toFloat()
-                c.drawLine(w - 8 * d, h - 20 * d, w - 20 * d, h - 8 * d, gp)
-                c.drawLine(w - 8 * d, h - 12 * d, w - 12 * d, h - 8 * d, gp)
-            }
-        }
-        grip.setOnTouchListener { _, e ->
-            val lp = layoutParams as? WindowManager.LayoutParams
-            if (lp != null) {
-                val dm = resources.displayMetrics
-                if (e.action == MotionEvent.ACTION_DOWN) {
-                    sx = e.rawX
-                    sy = e.rawY
-                    ow = lp.width
-                    oh = lp.height
-                } else if (e.action == MotionEvent.ACTION_MOVE) {
-                    lp.width = (ow + (e.rawX - sx) * 2).toInt().coerceIn(px(260), dm.widthPixels)
-                    lp.height = (oh + (e.rawY - sy) * 2).toInt().coerceIn(px(320), dm.heightPixels)
-                    wm.updateViewLayout(this@MenuView, lp)
-                }
-            }
-            true
-        }
-        addView(grip, FrameLayout.LayoutParams(px(44), px(44), Gravity.BOTTOM or Gravity.END))
-        show(0)
+        container.addView(row)
     }
-
-    private fun show(i: Int) {
-        for (n in 0 until content.childCount) {
-            content.getChildAt(n).visibility = if (n == i) View.VISIBLE else View.GONE
-            val col = if (n == i) Th.ACC else Th.DIM
-            val v = tabs.getChildAt(n)
-            if (v is Ico) {
-                v.set(v.kind, col)
-            } else if (v is Ico2) {
-                v.col = col
-                v.invalidate()
-            }
-        }
-    }
-
-    private fun toUrl(t: String): String {
-        val s = t.trim()
-        return when {
-            s.startsWith("http://") || s.startsWith("https://") -> s
-            !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> "https://duckduckgo.com/?q=" + Uri.encode(s)
-        }
-    }
-
-    private fun webPage(): View {
-        val p = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        val et = EditText(context)
-        et.hint = "Endereço ou pesquisa"
-        et.setSingleLine()
-        et.textSize = 14f
-        et.setTextColor(Th.TEXT)
-        et.setHintTextColor(Th.DIM)
-        et.imeOptions = EditorInfo.IME_ACTION_GO
-        val go = Button(context)
-        go.text = "Ir"
-        val row = LinearLayout(context)
-        row.addView(et, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(go)
-        val w = WebView(context)
-        w.settings.javaScriptEnabled = true
-        w.settings.domStorageEnabled = true
-        w.webViewClient = WebViewClient()
-        w.loadUrl("https://duckduckgo.com")
-        web = w
-        val open = { w.loadUrl(toUrl(et.text.toString())) }
-        go.setOnClickListener { open() }
-        et.setOnEditorActionListener { _, _, _ -> open(); true }
-        val chips = LinearLayout(context)
-        for (s in listOf("duckduckgo.com", "claude.ai", "wikipedia.org")) {
-            val b = Button(context)
-            b.text = s
-            b.textSize = 11f
-            b.isAllCaps = false
-            b.setOnClickListener { et.setText(s); open() }
-            chips.addView(b)
-        }
-        p.addView(row)
-        p.addView(chips)
-        p.addView(w, LinearLayout.LayoutParams(-1, 0, 1f))
-        return p
-    }
-
-    private fun hudPage(): View {
-        val ll = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(px(8), px(12), px(8), px(8))
-        }
-        hudControls(context, ll)
-        return ScrollView(context).apply { addView(ll) }
-    }
-
-    private val upd = object : Runnable {
-        override fun run() {
-            Music.refresh(context)
-            turbo.update()
-            music.update()
-            ins.update()
-            val op = Bg.opacity(context)
-            bgIv.setImageBitmap(Bg.bitmap(context))
-            bgIv.alpha = op
-            panel.alpha = (120 + 135 * op).toInt()
-            Cursors.apply(this@MenuView)
-            this@MenuView.postDelayed(this, 1000)
-        }
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        post(upd)
-        alpha = 0f
-        scaleX = 0.94f
-        scaleY = 0.94f
-        animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).start()
-    }
-
-    override fun onDetachedFromWindow() {
-        removeCallbacks(upd)
-        web?.let {
-            (it.parent as? ViewGroup)?.removeView(it)
-            it.destroy()
-        }
-        web = null
-        super.onDetachedFromWindow()
-    }
-    }
+}
